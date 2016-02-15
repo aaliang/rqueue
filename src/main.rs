@@ -5,13 +5,7 @@ use mio::tcp::{TcpStream, TcpListener};
 use mio::{Token, EventSet, EventLoop, PollOpt, Handler};
 use std::collections::{HashMap};
 use rqueue::buffered_reader::{RawMessage, get_message};
-use rqueue::threadpool::{Pool, Pooled};
-use std::sync::Arc;
-use rqueue::concurrent_hash_map::ConcurrentHashMap;
-use rqueue::rpc;
-use std::net::SocketAddr;
-use std::os::unix::io::{FromRawFd, AsRawFd, RawFd};
-use std::io::Write;
+use rqueue::threadpool::{StatePool, Pooled, QueuePoolWorker, PoolWorker};
 
 const SERVER: mio::Token = mio::Token(0);
 
@@ -25,11 +19,11 @@ impl Client {
             socket: socket
         }
     }
-    fn onread(&mut self, pool: &mut Pool<RawMessage, ()>) {
+    fn onread(&mut self, pool: &mut StatePool<RawMessage, ()>) {
         loop {
             match get_message(&mut self.socket) {
-                some @ Some(_) => {
-                    pool.send_rr(some.unwrap());
+                Some(s) => {
+                    pool.send_rr(s);
                 },
                 None => return
             }
@@ -41,7 +35,7 @@ struct RQueueServer {
     server: TcpListener,
     clients: HashMap<Token, Client>,
     token_counter: usize,
-    worker_pool: Pool<RawMessage, ()>
+    worker_pool: StatePool<RawMessage, ()>
 }
 
 impl Handler for RQueueServer {
@@ -93,15 +87,10 @@ fn main() {
 
     println!("running server");
 
-    let hm: ConcurrentHashMap<HashMap<SocketAddr, std::net::TcpStream>> = ConcurrentHashMap::new();
-
     let _ = event_loop.run(&mut RQueueServer { server: server,
                                                clients: HashMap::new(),
                                                token_counter: 0,
-                                               worker_pool: Pool::new(4, hm, move |work: RawMessage, a: &Arc<ConcurrentHashMap<HashMap<SocketAddr, std::net::TcpStream>>>| {
-                                                   rpc::parse(&work, a);
-                                                   //println!("hello {:?}", &work.payload[..work.length]);
-                                               })
+                                               worker_pool: StatePool::new(4, |contacts| QueuePoolWorker::new(contacts))
     });
 }
 

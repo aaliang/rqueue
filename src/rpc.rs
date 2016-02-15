@@ -1,11 +1,13 @@
 use buffered_reader::RawMessage;
 use std::sync::Arc;
-use concurrent_hash_map::ConcurrentHashMap;
+use std::sync::mpsc::{Sender};
+use slice_map::SliceMap;
 use std::net::{TcpStream, SocketAddr};
 use net2::TcpBuilder;
 use std::os::unix::io::{FromRawFd, AsRawFd, RawFd};
 use std::collections::HashMap;
 use std::io::Write;
+use std::{mem, ptr};
 
 /* for reference
 pub struct RawMessage {
@@ -26,10 +28,12 @@ pub enum Actions <'a> {
 const PUBLISH  : u8 = 0;
 const SUBSCRIBE: u8 = 1;
 const REMOVE   : u8 = 2;
+const SUBSCRIBE_FROM_WORKER: u8 = 3;
+
 
 //in this case this is an antipattern. can inline the handling
 //todo: don't use a vec
-pub fn parse <'a, 'b> (work: &'a RawMessage, state_map: &Arc<ConcurrentHashMap<HashMap<SocketAddr, TcpStream>>>) -> Actions<'a> {
+pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut SliceMap<HashMap<SocketAddr, TcpStream>>) {
     match work.m_type {
         PUBLISH => {
             //topic len is a one byte value (<255)
@@ -40,41 +44,54 @@ pub fn parse <'a, 'b> (work: &'a RawMessage, state_map: &Arc<ConcurrentHashMap<H
             println!("pub topic: {:?}", topic);
             println!("message: {:?}", message);
 
-            /*let x = state_map.get_apply(topic, |ref mut h_entry| {
-                for (_, tcp_stream) in h_entry.val.iter_mut() {
-                    println!("writing");
+            state_map.apply(topic, |ref mut h_entry| {
+                let mut n = 0;
+                for (addr, tcp_stream) in h_entry.iter_mut() {
+                    //TcpStreams in Rust are wrappers around raw file descriptors
+                    //thus, it is possible for us to get here with stale TcpStreams that have yet to be removed
+                    if addr == &tcp_stream.peer_addr().unwrap() {
+                                            println!("writing #{} to {:?} - real {:?}", n, addr, tcp_stream.peer_addr());
+                    n += 1;
                     tcp_stream.write(message);
+
+                    }
                 }
-            });*/
-
-            //println!("{:?}", x);
-            Actions::Publish {topic: topic, content: message}
-
+            });
         }
-        SUBSCRIBE => {
+        SUBSCRIBE |  SUBSCRIBE_FROM_WORKER => {
             let topic_len = work.payload[0] as usize;
             let topic = &work.payload[1..topic_len+1];
 
-            println!("sub topic: {:?}", &topic[..]);
-
             state_map.modify_or_else(topic, |ref mut map| {
+                //println!("fd-1: {}", work.raw_fd);
                 let tcp_stream = to_std_tcpstream_from_raw(work.raw_fd.clone());
                 map.insert(tcp_stream.peer_addr().unwrap(), tcp_stream);
             }, || {
+                //println!("fd-2: {}", work.raw_fd);
                 let mut map = HashMap::new();
                 let tcp_stream = to_std_tcpstream_from_raw(work.raw_fd.clone());
                 map.insert(tcp_stream.peer_addr().unwrap(), tcp_stream);
                 map
             });
-            Actions::Subscribe {topic: topic}
+
+            if work.m_type == SUBSCRIBE {
+                println!("sub topic: {:?}", &topic[..]);
+                for sender in contacts.iter() {
+                    let mut u = unsafe{ ptr::read(&work) };
+                    u.m_type = SUBSCRIBE_FROM_WORKER;
+                    sender.send(u);
+                }
+            }
+
+
         }
         REMOVE => {
             println!("removing");
-            Actions::Nil
+            //Actions::Nil
         }
         _ => {
             println!("none");
-            Actions::Nil
+            //Actions::Nil
         }
     }
 } 
