@@ -17,28 +17,28 @@ impl <T, R> Pool <T, R> where T: Send + 'static, R: Send + 'static {
         worker.send(task).unwrap();
     }
 
-    pub fn new <F, A> (num_threads: usize, mut a: A, f: F) -> Pool <T, R>
-    where F: Fn (T, &A) -> R + Sync + Send + 'static, A: Send + 'static {
+    pub fn new <F, A> (num_threads: usize, hm: A, f: F) -> Pool <T, R>
+    where F: Fn (T, &Arc<A>) -> R + Sync + Send + 'static, A: Send + Sync + 'static {
         let (done, wait) = channel();
         let func = Arc::new(f);
+        let a = Arc::new(hm);
         let workers = (0..num_threads).map(|_| {
             let (snd, work) = channel();
             let _done = done.clone();
             let f = func.clone();
-            unsafe {
-            let sendable_raw = unsafe {Unique::new(&mut a as *mut A)};
+            let aaa = a.clone();
             let _ = thread::spawn(move || {
+                let aa = aaa.clone();
                 loop {
                     let _ = match work.recv() {
                         Ok(task) => {
-                            let res = f(task, sendable_raw.get());
+                            let res = f(task, &aaa);
                             let _ = _done.send(res);
                         }
                         _ => ()
                     };
                 }
             });
-                }
             snd
         }).collect();
         Pool {

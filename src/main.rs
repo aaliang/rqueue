@@ -1,4 +1,5 @@
 extern crate mio;
+extern crate net2;
 extern crate rqueue;
 
 use mio::tcp::{TcpStream, TcpListener};
@@ -8,6 +9,10 @@ use rqueue::buffered_reader::{RawMessage, get_message};
 use rqueue::threadpool::{Pool, Pooled};
 use std::sync::Arc;
 use rqueue::concurrent_hash_map::ConcurrentHashMap;
+use rqueue::rpc;
+use net2::TcpBuilder;
+use std::os::unix::io::{FromRawFd, AsRawFd};
+use std::io::Write;
 
 const SERVER: mio::Token = mio::Token(0);
 
@@ -78,20 +83,6 @@ impl Handler for RQueueServer {
     }
 }
 
-//we could probably couple a pointer to the RWorker, but things will have to change
-//RWorker is poorly named right now. it's static. could convert to instance
-struct RWorker {
-    global_context: Arc<ConcurrentHashMap<u8, u8>>
-}
-
-impl Pooled<RawMessage, ()> for RWorker {
-    /*fn context(&self) -> Arc<ConcurrentHashMap<u8, u8>> {
-        self.global_context().clone()
-    }*/
-    fn func(work: RawMessage) {
-        println!("{:?}", &work.payload[..work.length]);
-    }
-}
 
 
 fn main() {
@@ -102,12 +93,23 @@ fn main() {
     event_loop.register(&server, SERVER, EventSet::all(), PollOpt::edge()).unwrap();
 
     println!("running server");
-    let hm: ConcurrentHashMap<u8, std::net::TcpStream> = ConcurrentHashMap::new();
+
+    let hm: ConcurrentHashMap<&[u8], std::net::TcpStream> = ConcurrentHashMap::new();
+
     let _ = event_loop.run(&mut RQueueServer { server: server,
                                                clients: HashMap::new(),
                                                token_counter: 0,
-                                               worker_pool: Pool::new(4, hm, |work: RawMessage, _| {
-                                                   println!("{:?}", &work.payload[..work.length]);
+                                               worker_pool: Pool::new(4, hm, move |work: RawMessage, a: &Arc<ConcurrentHashMap<&[u8], std::net::TcpStream>>| {
+                                                   rpc::parse(&work, a);
+                                                   //println!("hello {:?}", &work.payload[..work.length]);
                                                })
     });
+}
+
+//for debug
+pub fn to_std_tcpstream(stream: &TcpStream) -> std::net::TcpStream {
+    let builder = unsafe {
+        TcpBuilder::from_raw_fd(stream.as_raw_fd())
+    };
+    builder.to_tcp_stream().unwrap()
 }
