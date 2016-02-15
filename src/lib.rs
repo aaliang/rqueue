@@ -1,6 +1,7 @@
 #![feature(unique)]
 
 extern crate mio;
+extern crate net2;
 
 pub mod threadpool;
 pub mod rpc;

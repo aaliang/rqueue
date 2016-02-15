@@ -5,6 +5,8 @@ authors = ["aliang <aliang2344@gmail.com>"]
 
 [dependencies]
 mio = "0.5"
+net2 = "*"
+time = "*"
 
 [[bin]]
 name = "server"
@@ -13,3 +15,7 @@ path = "src/main.rs"
 [[bin]]
 name = "client"
 path = "src/client.rs"
+
+[[bin]]
+name = "mock"
+path = "src/mock.rs"

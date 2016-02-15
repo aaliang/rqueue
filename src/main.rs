@@ -1,5 +1,4 @@
 extern crate mio;
-extern crate net2;
 extern crate rqueue;
 
 use mio::tcp::{TcpStream, TcpListener};
@@ -10,8 +9,8 @@ use rqueue::threadpool::{Pool, Pooled};
 use std::sync::Arc;
 use rqueue::concurrent_hash_map::ConcurrentHashMap;
 use rqueue::rpc;
-use net2::TcpBuilder;
-use std::os::unix::io::{FromRawFd, AsRawFd};
+use std::net::SocketAddr;
+use std::os::unix::io::{FromRawFd, AsRawFd, RawFd};
 use std::io::Write;
 
 const SERVER: mio::Token = mio::Token(0);
@@ -94,22 +93,23 @@ fn main() {
 
     println!("running server");
 
-    let hm: ConcurrentHashMap<&[u8], std::net::TcpStream> = ConcurrentHashMap::new();
+    let hm: ConcurrentHashMap<HashMap<SocketAddr, std::net::TcpStream>> = ConcurrentHashMap::new();
 
     let _ = event_loop.run(&mut RQueueServer { server: server,
                                                clients: HashMap::new(),
                                                token_counter: 0,
-                                               worker_pool: Pool::new(4, hm, move |work: RawMessage, a: &Arc<ConcurrentHashMap<&[u8], std::net::TcpStream>>| {
+                                               worker_pool: Pool::new(4, hm, move |work: RawMessage, a: &Arc<ConcurrentHashMap<HashMap<SocketAddr, std::net::TcpStream>>>| {
                                                    rpc::parse(&work, a);
                                                    //println!("hello {:?}", &work.payload[..work.length]);
                                                })
     });
 }
 
+/*
 //for debug
-pub fn to_std_tcpstream(stream: &TcpStream) -> std::net::TcpStream {
+fn to_std_tcpstream(stream: &TcpStream) -> std::TcpStream {
     let builder = unsafe {
         TcpBuilder::from_raw_fd(stream.as_raw_fd())
     };
     builder.to_tcp_stream().unwrap()
-}
+}*/

@@ -24,22 +24,38 @@ fn subscribe_message(topic: &[u8]) -> Vec<u8> {
     let sz = (topic.len() + 1) as u32;
     let len:[u8; 4] = unsafe {mem::transmute(sz.to_be())};
 
-    vec.extend(len.iter().chain([1].iter()).chain(topic.iter()));
+    vec.extend(len.iter().chain([1].iter()).chain([topic_len].iter()).chain(topic.iter()));
     vec
 }
+
+//use std::thread;
 
 
 fn main () {
     let mut stream = TcpStream::connect("127.0.0.1:6567").unwrap();
 
+    let mut stream_clone = stream.try_clone().unwrap();
+    let _ = thread::spawn(move || {
+        let pub_msg = publish_message(&[1,1,1], &[6,6,6,6,6,6]);
+        loop {
+            stream_clone.write_all(&pub_msg);
+            //stream_clone.write_all(&[1,1,1,1,1,1,1,1,1,1]);
+        }
+    });
 
-    let pub_msg = publish_message(&[3,3,3], &[4,5,6,7]);
-    let sub_msg = subscribe_message(&[3,3,3]);
-    println!("{:?}", &pub_msg[..]);
-    stream.write_all(&pub_msg);
-    println!("{:?}", &sub_msg[..]);
-    stream.write_all(&sub_msg);
 
+    loop {
+        let pub_msg = publish_message(&[3,3,3], &[5,5,5,5,5,5]);
+        //let sub_msg = subscribe_message(&[3,3,3]);
+        //println!("{:?}", &sub_msg[..]);
+        //stream.write_all(&sub_msg);
+
+        //thread::sleep_ms(500);
+
+        //println!("{:?}", &pub_msg[..]);
+        stream.write_all(&pub_msg);
+        //stream.write_all(&[8,8,8,8,8,8,8,8,8,8])
+    }
 
     let mut mut_buf = [0; 30];
     let r = stream.read(&mut mut_buf);

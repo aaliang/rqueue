@@ -3,15 +3,18 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::RwLock;
 use std::{ptr, mem};
 
-pub struct ConcurrentHashMap <K, V> where K: Hash + PartialEq + Clone {
+//this is a specialized map.
+//keys must be byte slices (they are converted to byte vectors if they are stored)
+//values are generic.
+pub struct ConcurrentHashMap <V> {
     // for now there are 16 segments
-    segments: [Segment<K, V>; 16]
+    segments: [Segment<V>; 16]
 }
 
-impl <K, V> ConcurrentHashMap <K, V> where K: Hash + PartialEq + Clone {
-    pub fn new () -> ConcurrentHashMap<K, V> {
+impl <V> ConcurrentHashMap <V> {
+    pub fn new () -> ConcurrentHashMap<V> {
         let seg = unsafe {
-            let mut seg:[Segment<K,V>; 16] = mem::uninitialized();
+            let mut seg:[Segment<V>; 16] = mem::uninitialized();
             for i in seg.iter_mut() {
                 ptr::write(i, Segment::new());
             }
@@ -23,35 +26,49 @@ impl <K, V> ConcurrentHashMap <K, V> where K: Hash + PartialEq + Clone {
     }
 
     /// gets the key from this hashtable if it exists
-    pub fn get (&self, key: &K) -> Option<&V> {
+    pub fn get (&self, key: &[u8]) -> Option<&V> {
         let hash = Self::make_hash(key);
         let segment = self.segment_index(hash);
         self.segments[segment].get(key, hash)
     }
 
+    /// applies the function given the value for the key, safely. does no modification
+    pub fn get_apply <F> (&self, key: &[u8], func: F) where F: Fn(&mut HashEntry<V>) {
+        let hash = Self::make_hash(key);
+        let segment = self.segment_index(hash);
+        self.segments[segment].get_apply(key, hash, func);
+    }
+
     /// Beware! do you really want to use this method?
     /// this is terribly unsafe. returning a mutable reference from here allows bypassing of the rwlock which is extremely dangerous in multithreaded use. use extremely sparingly
     /// if possible use ConcurrentHashMap::get_modify
-    pub fn get_mut(&self, key: &K) -> Option<&mut V> {
+    pub fn get_mut(&self, key: &[u8]) -> Option<&mut V> {
         let hash = Self::make_hash(key);
         let segment = self.segment_index(hash);
         self.segments[segment].get_mut(key, hash)
     }
 
     /// Searches for key in the hashmap. if a value exists, calls func on the value yielding a new value which is replaced in the same transaction
-    pub fn get_modify <F> (&self, key: &K, func: F) -> Option<&V> where F: Fn(&V) -> V {
+    pub fn get_modify <F> (&self, key: &[u8], func: F) -> Option<&V> where F: Fn(&V) -> V {
         let hash = Self::make_hash(key);
         let segment = self.segment_index(hash);
         self.segments[segment].get_modify(key, hash, func)
     }
 
-    pub fn insert (&self, key: K, val: V) {
+    pub fn modify_or_else <F1, F2> (&self, key: &[u8], mod_func: F1, put_func: F2)
+    where F1: Fn(&mut V), F2: FnOnce() -> V {
+        let hash = Self::make_hash(key);
+        let segment = self.segment_index(hash);
+        self.segments[segment].modify_or_else(key, hash, mod_func, put_func);
+    }
+
+    pub fn insert (&self, key: &[u8], val: V) {
         let hash = Self::make_hash(&key);
         let segment = self.segment_index(hash);
         self.segments[segment].insert(key, hash, val);
     }
 
-    pub fn delete (&self, key: K) -> bool {
+    pub fn delete (&self, key: &[u8]) -> bool {
         let hash = Self::make_hash(&key);
         let segment = self.segment_index(hash);
         self.segments[segment].delete(&key, hash)
@@ -62,7 +79,7 @@ impl <K, V> ConcurrentHashMap <K, V> where K: Hash + PartialEq + Clone {
         hash >> 4 & (self.segments.len() - 1)
     }
 
-    fn make_hash (key: &K) -> usize {
+    fn make_hash (key: &[u8]) -> usize {
         let mut s = SipHasher::new();
         key.hash(&mut s);
         s.finish() as usize
@@ -77,16 +94,16 @@ enum InlineVec <T> {
 }
 
 /// A Segment is a write locked subset of a hashmap. Multiple reads can be done concurrently on a single segment.
-pub struct Segment <K, V> where K: Hash + PartialEq + Clone {
+pub struct Segment <V> {
     count: AtomicUsize,
-    table: RwLock<InlineVec<HashEntry<K, V>>>,
+    table: RwLock<InlineVec<HashEntry<V>>>,
     capacity: usize
 }
 
-impl <K, V> Segment <K, V> where K: Hash + PartialEq + Clone {
-    pub fn new () -> Segment <K, V> {
+impl <V> Segment <V> {
+    pub fn new () -> Segment <V> {
         let stat = unsafe {
-            let mut stat:[Vec<HashEntry<K, V>>; 64] = mem::uninitialized();
+            let mut stat:[Vec<HashEntry<V>>; 64] = mem::uninitialized();
             for i in stat.iter_mut() {
                 ptr::write(i, Vec::new());
             }
@@ -98,7 +115,7 @@ impl <K, V> Segment <K, V> where K: Hash + PartialEq + Clone {
             capacity: 8
         }
     }
-    pub fn insert (&self, key: K, hash: usize, val: V) {
+    pub fn insert (&self, key: &[u8], hash: usize, val: V) {
         let mut table = self.table.write().unwrap();
         let mut tab = match *table {
             InlineVec::Static(_, ref mut arr) => &mut arr[..],
@@ -111,7 +128,7 @@ impl <K, V> Segment <K, V> where K: Hash + PartialEq + Clone {
         for i in list.iter_mut() {
             if i.key == key {
                 *i = HashEntry {
-                    key: key.clone(),
+                    key: key.to_owned(),
                     val: val,
                     hash: hash.clone()
                 };
@@ -120,7 +137,7 @@ impl <K, V> Segment <K, V> where K: Hash + PartialEq + Clone {
         }
 
         list.push(HashEntry {
-            key: key,
+            key: key.to_owned(),
             val: val,
             hash: hash
         });
@@ -128,7 +145,7 @@ impl <K, V> Segment <K, V> where K: Hash + PartialEq + Clone {
         self.count.fetch_add(1, Ordering::SeqCst);
     }
 
-    pub fn get (&self, key: &K, hash: usize) -> Option<&V> {
+    pub fn get (&self, key: &[u8], hash: usize) -> Option<&V> {
         let count = self.count.load(Ordering::SeqCst);
         if count == 0 {
             None
@@ -139,7 +156,7 @@ impl <K, V> Segment <K, V> where K: Hash + PartialEq + Clone {
                 InlineVec::Dynamic(ref vec) => (&vec[..])
             };
             let index = hash & (self.capacity - 1);
-            match tab[index].iter().find(|e| e.key == *key && e.hash == hash) {
+            match tab[index].iter().find(|e| &e.key[..] == key) {
                 None => None,
                 Some(s) => {
                     let as_raw_ptr = &s.val as *const V;
@@ -150,8 +167,30 @@ impl <K, V> Segment <K, V> where K: Hash + PartialEq + Clone {
         }
     }
 
+    pub fn get_apply <F> (&self, key: &[u8], hash: usize, func: F) where F: Fn(&mut HashEntry<V>) {
+        let count = self.count.load(Ordering::SeqCst);
+        if count == 0 {
+            return
+        } else {
+            let mut read = self.table.write().unwrap();
+            let mut tab = match *read {
+                InlineVec::Static(_, ref mut arr) => (&mut arr[..]),
+                InlineVec::Dynamic(ref mut vec) => (&mut vec[..])
+            };
+            let index = hash & (self.capacity - 1);
+
+            //let ref mut x = tab[index][0];
+            match tab[index].iter_mut().find(|e| &e.key[..] == key) {
+                None => (),
+                Some(mut s) => {
+                    func(&mut s);
+                }
+            };
+        }
+    }
+
     //see ConcurrentHashMap::get_mut above. you probably don't want to use this
-    pub fn get_mut (&self, key: &K, hash: usize) -> Option<&mut V> {
+    pub fn get_mut (&self, key: &[u8], hash: usize) -> Option<&mut V> {
         let count = self.count.load(Ordering::SeqCst);
         if count == 0 {
             None
@@ -162,7 +201,7 @@ impl <K, V> Segment <K, V> where K: Hash + PartialEq + Clone {
                 InlineVec::Dynamic(ref mut vec) => &mut vec[..]
             };
             let index = hash & (self.capacity - 1);
-            match tab[index].iter_mut().find(|e| e.key == *key && e.hash == hash) {
+            match tab[index].iter_mut().find(|e| &e.key[..] == key) {
                 None => None,
                 Some(s) => {
                     let as_raw_ptr = &mut s.val as *mut V;
@@ -172,7 +211,7 @@ impl <K, V> Segment <K, V> where K: Hash + PartialEq + Clone {
         }
     }
 
-    pub fn get_modify <F> (&self, key: &K, hash: usize, func: F) -> Option<&V> where F: Fn(&V) -> V {
+    pub fn get_modify <F> (&self, key: &[u8], hash: usize, func: F) -> Option<&V> where F: Fn(&V) -> V {
         let count = self.count.load(Ordering::SeqCst);
         if count == 0 {
             None
@@ -183,13 +222,13 @@ impl <K, V> Segment <K, V> where K: Hash + PartialEq + Clone {
                 InlineVec::Dynamic(ref mut vec) => &mut vec[..]
             };
             let index = hash & (self.capacity - 1);
-            match tab[index].iter_mut().find(|e| e.key == *key && e.hash == hash) {
+            match tab[index].iter_mut().find(|e| &e.key[..] == key) {
                 None => None,
                 Some(s) =>  {
                     let new_val = func(&s.val);
                     *s = HashEntry {
                         hash: hash,
-                        key: key.clone(),
+                        key: key.to_owned(),
                         val: new_val
                     };
                     let as_raw_ptr = &mut s.val as *mut V;
@@ -199,7 +238,28 @@ impl <K, V> Segment <K, V> where K: Hash + PartialEq + Clone {
         }
     }
 
-    pub fn delete (&self, key: &K, hash: usize) -> bool {
+    pub fn modify_or_else <F1, F2> (&self, key: &[u8], hash: usize, mod_func: F1, put_func: F2) where F1: Fn(&mut V), F2: FnOnce() -> V {
+        let mut write = self.table.write().unwrap();
+        let mut tab = match *write {
+            InlineVec::Static(_, ref mut arr) => &mut arr[..],
+            InlineVec::Dynamic(ref mut vec) => &mut vec[..]
+        };
+        let index = hash & (self.capacity - 1);
+        if let Some(s) = tab[index].iter_mut().find(|e| &e.key[..] == key) {
+            mod_func(&mut s.val);
+            return
+        } 
+        //else
+        self.count.fetch_add(1, Ordering::SeqCst);
+        tab[index].push(HashEntry{
+            hash: hash,
+            key: key.to_owned(),
+            val: put_func()
+        });
+    }
+
+
+    pub fn delete (&self, key: &[u8], hash: usize) -> bool {
         let count = self.count.load(Ordering::SeqCst);
         if count == 0 {
             false
@@ -210,7 +270,7 @@ impl <K, V> Segment <K, V> where K: Hash + PartialEq + Clone {
                 InlineVec::Dynamic(ref mut vec) => &mut vec[..]
             };
             let index = hash & (self.capacity - 1);
-            let del_opt = tab[index].iter().enumerate().find(|&(_, e)| e.key == *key && e.hash == hash).map(|(i, _)| i);
+            let del_opt = tab[index].iter().enumerate().find(|&(_, e)| &e.key[..] == key).map(|(i, _)| i);
             match del_opt {
                 None => false,
                 Some(index_to_delete) => {
@@ -224,63 +284,8 @@ impl <K, V> Segment <K, V> where K: Hash + PartialEq + Clone {
 }
 
 #[derive(Clone)]
-struct HashEntry <K, V> where K: Hash + Clone {
-    key: K,
+pub struct HashEntry <V> {
+    key: Vec<u8>,
     val: V,
     hash: usize
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    //basic ops
-    #[test]
-    fn empty_get() {
-        let chm: ConcurrentHashMap<&str, i32> = ConcurrentHashMap::new();
-        assert_eq!(chm.get(&"empty"), None);
-    }
-
-    #[test]
-    fn inserts() {
-        let chm = ConcurrentHashMap::new();
-        chm.insert("hello", 3);
-        assert_eq!(chm.get(&"hello"), Some(&3));
-    }
-
-    #[test]
-    fn deletes() {
-        let chm = ConcurrentHashMap::new();
-        chm.insert("hello", 3);
-        assert_eq!(chm.delete(&"hello"), true);
-        assert_eq!(chm.get(&"hello"), None);
-    }
-
-    #[test]
-    fn get_modify() {
-        let chm = ConcurrentHashMap::new();
-        chm.insert("hello", 3);
-        chm.get_modify(&"hello", |x| x + 1);
-        assert_eq!(chm.get(&"hello"), Some(&4));
-    }
-
-    use std::thread;
-    use std::sync::Arc;
-    #[test]
-    fn concurrent_writes() {
-        let shared_map = Arc::new(ConcurrentHashMap::new());
-        let thandles = (0..16).map(|i| {
-            let local = shared_map.clone();
-            thread::spawn(move || {
-                local.insert(i.clone(), i);
-            })
-        });
-        for t in thandles {
-            let _ = t.join();
-        }
-        let main_instance = shared_map.clone();
-        for ref i in 0..16 {
-            assert_eq!(main_instance.get(i), Some(i));
-        }
-    }
-
 }
