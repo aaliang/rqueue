@@ -5,7 +5,7 @@ use mio::tcp::{TcpStream, TcpListener};
 use mio::{Token, EventSet, EventLoop, PollOpt, Handler};
 use std::collections::{HashMap};
 use std::net::SocketAddr;
-use rqueue::buffered_reader::{RawMessage, get_message};
+use rqueue::protocol::{RawMessage, get_message};
 use rqueue::threadpool::{StatePool, Pooled, QueuePoolWorker, PoolWorker};
 use rqueue::rpc::DEREGISTER_ONCE;
 use std::mem;
@@ -64,7 +64,6 @@ impl Handler for RQueueServer {
         match token {
             SERVER => {
                 assert!(events.is_readable());
-                println!("server is up");
                 let client_socket = match self.server.accept() {
                     Ok(Some((socket, _))) => socket,
                     Ok(None) => unreachable!(),
@@ -75,6 +74,7 @@ impl Handler for RQueueServer {
                 };
                 self.token_counter += 1;
                 let ntoken = Token(self.token_counter);
+                println!("new token {:?}", ntoken);
                 self.clients.insert(ntoken, Client::new(client_socket));
 
                 event_loop.register(&self.clients[&ntoken].socket, ntoken, EventSet::readable(),
@@ -110,7 +110,7 @@ fn main() {
     let _ = event_loop.run(&mut RQueueServer { server: server,
                                                clients: HashMap::new(),
                                                token_counter: 0,
-                                               worker_pool: StatePool::new(4, |contacts| QueuePoolWorker::new(contacts))
+                                               worker_pool: StatePool::new(8, |contacts| QueuePoolWorker::new(contacts))
     });
 }
 

@@ -1,7 +1,7 @@
 use std::sync::mpsc::{Sender, Receiver, channel};
 use std::thread;
 use std::sync::Arc;
-use buffered_reader::RawMessage;
+use protocol::RawMessage;
 use slice_map::SliceMap;
 use std::collections::{HashSet, HashMap};
 use std::net::{SocketAddr, TcpStream};
