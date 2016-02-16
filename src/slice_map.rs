@@ -103,6 +103,22 @@ impl <V> SliceMap <V> {
         });
     }
 
+    ///modifies the val for the key.
+    ///returns a flag (e.g. to be used if the val is considered empty etc)
+    pub fn modify <F1, E> (&mut self, key: &[u8], mod_func: F1) -> Option<E> where F1: Fn(&mut V) -> Option<E> {
+        let hash = Self::make_hash(key);
+        let index = hash & (self.capacity - 1);
+        let mut tab = match self.table {
+            InlineVec::Static(_, ref mut arr) => &mut arr[..],
+            InlineVec::Dynamic(ref mut vec) => &mut vec[..]
+        };
+        if let Some(s) = tab[index].iter_mut().find(|e| &e.key[..] == key) {
+            mod_func(&mut s.val)
+        } else {
+            None
+        }
+    }
+
     pub fn delete (&mut self, key: &[u8]) -> bool {
         if self.count == 0 {
             false

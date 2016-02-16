@@ -1,6 +1,7 @@
 use mio::{TryRead};
 use mio::tcp::TcpStream;
 use std::os::unix::io::{RawFd, AsRawFd};
+use std::net::SocketAddr;
 
 const MAX_STATIC_SZ: usize = 2048;
 
@@ -8,7 +9,8 @@ pub struct RawMessage {
     pub m_type: u8,
     pub length: usize,
     pub payload: [u8; MAX_STATIC_SZ],
-    pub raw_fd: RawFd
+    pub raw_fd: RawFd,
+    pub socket_addr: SocketAddr
 }
 
 pub fn get_message(socket: &mut TcpStream) -> Option<RawMessage>{
@@ -27,7 +29,8 @@ pub fn get_message(socket: &mut TcpStream) -> Option<RawMessage>{
                 m_type: m_type,
                 length: bytes_read,
                 payload: payload,
-                raw_fd: socket.as_raw_fd()
+                raw_fd: socket.as_raw_fd(),
+                socket_addr: socket.peer_addr().unwrap()
             })
         },
         _ => {

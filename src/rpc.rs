@@ -18,18 +18,11 @@ pub struct RawMessage {
 }
  */
 
-//not to be used for now
-pub enum Actions <'a> {
-    Publish {topic: &'a [u8], content: &'a [u8]},
-    Subscribe {topic: &'a [u8]},
-    Nil
-}
-
-const PUBLISH  : u8 = 0;
-const SUBSCRIBE: u8 = 1;
-const REMOVE   : u8 = 2;
+const PUBLISH              : u8 = 0;
+const SUBSCRIBE            : u8 = 1;
+const REMOVE               : u8 = 2;
 const SUBSCRIBE_FROM_WORKER: u8 = 3;
-
+const REMOVE_FROM_WORKER   : u8 = 4;
 
 //in this case this is an antipattern. can inline the handling
 //todo: don't use a vec
@@ -45,15 +38,11 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
             println!("message: {:?}", message);
 
             state_map.apply(topic, |ref mut h_entry| {
-                let mut n = 0;
                 for (addr, tcp_stream) in h_entry.iter_mut() {
                     //TcpStreams in Rust are wrappers around raw file descriptors
                     //thus, it is possible for us to get here with stale TcpStreams that have yet to be removed
                     if addr == &tcp_stream.peer_addr().unwrap() {
-                                            println!("writing #{} to {:?} - real {:?}", n, addr, tcp_stream.peer_addr());
-                    n += 1;
-                    tcp_stream.write(message);
-
+                        tcp_stream.write(message);
                     }
                 }
             });
@@ -63,14 +52,16 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
             let topic = &work.payload[1..topic_len+1];
 
             state_map.modify_or_else(topic, |ref mut map| {
-                //println!("fd-1: {}", work.raw_fd);
                 let tcp_stream = to_std_tcpstream_from_raw(work.raw_fd.clone());
-                map.insert(tcp_stream.peer_addr().unwrap(), tcp_stream);
+                if tcp_stream.peer_addr().unwrap() == work.socket_addr {
+                    map.insert(tcp_stream.peer_addr().unwrap(), tcp_stream);
+                }
             }, || {
-                //println!("fd-2: {}", work.raw_fd);
                 let mut map = HashMap::new();
                 let tcp_stream = to_std_tcpstream_from_raw(work.raw_fd.clone());
-                map.insert(tcp_stream.peer_addr().unwrap(), tcp_stream);
+                if tcp_stream.peer_addr().unwrap() == work.socket_addr {
+                    map.insert(tcp_stream.peer_addr().unwrap(), tcp_stream);
+                }
                 map
             });
 
@@ -82,12 +73,28 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
                     sender.send(u);
                 }
             }
-
-
         }
-        REMOVE => {
-            println!("removing");
-            //Actions::Nil
+        REMOVE | REMOVE_FROM_WORKER => {
+            let topic_len = work.payload[0] as usize;
+            let topic = &work.payload[1..topic_len+1];
+            let remove_topic = state_map.modify(topic, |ref mut map| {
+                map.remove(&work.socket_addr);
+                match map.is_empty() {
+                    true => Some(true),
+                    _ => None
+                }
+            });
+            if remove_topic == Some(true) {
+                state_map.delete(topic);
+            }
+            if work.m_type == REMOVE {
+                println!("removing, {:?}", &topic[..]);
+                for sender in contacts.iter() {
+                    let mut u = unsafe{ ptr::read(&work) };
+                    u.m_type = REMOVE_FROM_WORKER;
+                    sender.send(u);
+                }
+            }
         }
         _ => {
             println!("none");
