@@ -1,8 +1,10 @@
 use std::{ptr, mem};
 use std::hash::{SipHasher, Hash, Hasher};
 
+const STATIC_SZ: usize = 2048;
+
 enum InlineVec <T> {
-    Static(usize, [Vec<T>; 64]),
+    Static(usize, [Vec<T>; STATIC_SZ]),
     Dynamic(Vec<Vec<T>>)
 }
 
@@ -18,7 +20,7 @@ pub struct SliceMap <V> {
 impl <V> SliceMap <V> {
     pub fn new () -> SliceMap <V> {
         let stat = unsafe {
-            let mut stat:[Vec<HashEntry<V>>; 64] = mem::uninitialized();
+            let mut stat:[Vec<HashEntry<V>>; STATIC_SZ] = mem::uninitialized();
             for i in stat.iter_mut() {
                 ptr::write(i, Vec::new());
             }
@@ -27,7 +29,7 @@ impl <V> SliceMap <V> {
         SliceMap {
             count: 0,
             table: InlineVec::Static(0, stat),
-            capacity: 8
+            capacity: STATIC_SZ
         }
     }
     pub fn insert (&mut self, key: &[u8], val: V) {

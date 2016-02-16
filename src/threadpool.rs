@@ -1,16 +1,15 @@
 use std::sync::mpsc::{Sender, Receiver, channel};
 use std::thread;
 use std::sync::Arc;
-use std::ptr::Unique;
 use buffered_reader::RawMessage;
 use slice_map::SliceMap;
-use std::collections::HashMap;
+use std::collections::{HashSet, HashMap};
 use std::net::{SocketAddr, TcpStream};
 use rpc::parse;
 
 pub struct Pool <T, R> {
-    workers: Vec<Sender<T>>,
-    wait_rx: Receiver<R>,
+    pub workers: Vec<Sender<T>>,
+    pub wait_rx: Receiver<R>,
     curr_index: usize
 }
 
@@ -33,7 +32,6 @@ impl <T, R> Pool <T, R> where T: Send + 'static, R: Send + 'static {
             let f = func.clone();
             let aaa = a.clone();
             let _ = thread::spawn(move || {
-                let aa = aaa.clone();
                 loop {
                     let _ = match work.recv() {
                         Ok(task) => {
@@ -60,25 +58,27 @@ pub trait PoolWorker <T, R> {
 }
 
 pub struct StatePool <T, R> {
-    workers: Vec<Sender<T>>,
-    wait_rx: Receiver<R>,
+    pub workers: Vec<Sender<T>>,
+    pub wait_rx: Receiver<R>,
     curr_index: usize
 }
 
 pub struct QueuePoolWorker {
     topic_map: SliceMap<HashMap<SocketAddr, TcpStream>>,
-    contacts: Vec<Sender<RawMessage>>
+    contacts: Vec<Sender<RawMessage>>,
+    interest_map: HashMap<SocketAddr, HashSet<Vec<u8>>>
 }
 
 impl PoolWorker<RawMessage, ()> for QueuePoolWorker {
     fn new (contacts: Vec<Sender<RawMessage>>) -> QueuePoolWorker {
         QueuePoolWorker {
             topic_map: SliceMap::new(),
-            contacts: contacts
+            contacts: contacts,
+            interest_map: HashMap::new()
         }
     }
     fn func (&mut self, message: RawMessage) {
-        parse(message, &self.contacts, &mut self.topic_map);
+        parse(message, &self.contacts, &mut self.topic_map, &mut self.interest_map);
     }
 }
 

@@ -4,19 +4,37 @@ extern crate rqueue;
 use mio::tcp::{TcpStream, TcpListener};
 use mio::{Token, EventSet, EventLoop, PollOpt, Handler};
 use std::collections::{HashMap};
+use std::net::SocketAddr;
 use rqueue::buffered_reader::{RawMessage, get_message};
 use rqueue::threadpool::{StatePool, Pooled, QueuePoolWorker, PoolWorker};
+use rqueue::rpc::DEREGISTER_ONCE;
+use std::mem;
 
 const SERVER: mio::Token = mio::Token(0);
 
 struct Client {
-    socket: TcpStream
+    socket: TcpStream,
+    socket_addr: SocketAddr
 }
 
 impl Client {
     fn new(socket: TcpStream) -> Client {
+        let addr = socket.peer_addr().unwrap();
         Client {
-            socket: socket
+            socket: socket,
+            socket_addr: addr//cache this value
+        }
+    }
+    fn disconnect(&self, pool: &mut StatePool<RawMessage, ()>) {
+        for sender in pool.workers.iter() {
+            let message = RawMessage {
+                m_type: DEREGISTER_ONCE,
+                length: 0,
+                socket_addr: self.socket_addr.clone(),
+                payload: unsafe {mem::uninitialized()},
+                raw_fd: -1
+            };
+            let _ = sender.send(message);
         }
     }
     fn onread(&mut self, pool: &mut StatePool<RawMessage, ()>) {
@@ -65,7 +83,9 @@ impl Handler for RQueueServer {
             token => {
                 if events.is_hup() {
                     println!("removing token {:?}", token);
-                    self.clients.remove(&token);
+                    let client = self.clients.remove(&token).unwrap();
+                    client.disconnect(&mut self.worker_pool);
+                    
                 } else {
                     let mut client = self.clients.get_mut(&token).unwrap();
                     client.onread(&mut self.worker_pool);
