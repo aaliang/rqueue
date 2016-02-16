@@ -120,7 +120,7 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
                     }
                 }
             }
-            
+
             if work.m_type == DEREGISTER {
                 for sender in contacts.iter() {
                     let mut u = unsafe {ptr::read(&work) };
@@ -134,7 +134,7 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
             //Actions::Nil
         }
     }
-} 
+}
 
 fn to_std_tcpstream_from_raw(fd: RawFd) -> TcpStream {
     let builder = unsafe { TcpBuilder::from_raw_fd(fd.clone()) };
