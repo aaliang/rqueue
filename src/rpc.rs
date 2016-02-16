@@ -24,8 +24,6 @@ const REMOVE               : u8 = 2;
 const SUBSCRIBE_FROM_WORKER: u8 = 3;
 const REMOVE_FROM_WORKER   : u8 = 4;
 
-//in this case this is an antipattern. can inline the handling
-//todo: don't use a vec
 pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut SliceMap<HashMap<SocketAddr, TcpStream>>) {
     match work.m_type {
         PUBLISH => {
