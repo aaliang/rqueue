@@ -47,10 +47,11 @@ fn main () {
 
         loop {
             match get_message(&mut stream) {
+                Some(0) => break,
                 Some(bytes_read) => {
                     bytes+=bytes_read;
                     count += 1;
-                }, //println!("{:?}", &mut_buf[..bytes_read]),
+                },
                 _ => ()
             };
 

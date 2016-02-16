@@ -27,7 +27,7 @@ pub fn get_message (socket: &mut TcpStream) -> Option<RawMessage>{
         },
         _ => return None
     };
-    let mut payload = [0; MAX_STATIC_SZ];
+    let mut payload: [u8; MAX_STATIC_SZ] = unsafe { mem::uninitialized() };
     match socket.try_read(&mut payload[0..payl_size]) {
         Ok(Some(bytes_read)) => {
             Some(RawMessage {
