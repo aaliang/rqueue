@@ -1,11 +1,12 @@
-use mio::{TryRead};
+use mio::TryRead;
 use mio::tcp::TcpStream;
 use std::os::unix::io::{RawFd, AsRawFd};
 use std::net::SocketAddr;
 use std::mem;
+use std::io::Read;
 use rpc;
 
-const MAX_STATIC_SZ: usize = 2048;
+pub const MAX_STATIC_SZ: usize = 2048;
 
 /// RawMessage is raw in so far that we have the message in it's entirity
 /// we know the general type but we don't necessarily know what the contents in
@@ -20,27 +21,58 @@ pub struct RawMessage {
 
 pub fn get_message (socket: &mut TcpStream) -> Option<RawMessage>{
     let mut preamble = [0; 5];
-    let (payl_size, m_type) = match socket.try_read(&mut preamble) {
-        Ok(Some(5)) => {
-            let size = u8_4_to_u32(&preamble[0..4]);
-            (size, preamble[4])
-        },
-        _ => return None
-    };
+    let mut preamble_read = 0;
+    let payl_size;
+    let m_type;
+
+    loop {
+        match socket.try_read(&mut preamble[preamble_read..]) {
+            Ok(Some(5)) => {
+                let size = u8_4_to_u32(&preamble[0..4]);
+                payl_size = size;
+                m_type = preamble[4];
+                break;
+            },
+            Ok(Some(0)) if preamble_read == 0 => {
+                return None
+            }
+            Ok(Some(num_read)) => {
+                println!("only read {:?}", num_read);
+                preamble_read += num_read;
+            }
+            _ => return None
+        };
+    }
+
     let mut payload: [u8; MAX_STATIC_SZ] = unsafe { mem::uninitialized() };
-    match socket.try_read(&mut payload[0..payl_size]) {
-        Ok(Some(bytes_read)) => {
-            Some(RawMessage {
-                m_type: m_type,
-                length: bytes_read,
-                payload: payload,
-                raw_fd: socket.as_raw_fd(),
-                socket_addr: socket.peer_addr().unwrap()
-            })
-        },
-        _ => {
-            println!("no payload found");
-            None
+    let mut retries = 0;
+    let mut curr_index = 0;
+    loop { //this loop might be bad for the event loop. might be able to abstract into a
+           //coroutine powered by mio
+        match socket.try_read(&mut payload[curr_index..payl_size]) {
+            Ok(Some(read)) => {
+                curr_index += read;
+                if curr_index == payl_size {
+                    if retries > 0 {
+                        println!("continuing after {} retries", retries);
+                    }
+                    return Some(RawMessage {
+                        m_type: m_type,
+                        length: read,
+                        payload: payload,
+                        raw_fd: socket.as_raw_fd(),
+                        socket_addr: socket.peer_addr().unwrap()
+                    })
+                } else {
+                    retries += 1;
+                    println!("retrying #{}", retries);
+                }
+            }
+            err => {
+                println!("err {:?}", err);
+                retries += 1;
+                println!("retrying #{}", retries);
+            }
         }
     }
 }

@@ -46,9 +46,12 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
                 for (addr, tcp_stream) in h_entry.iter_mut() {
                     //TcpStreams in Rust are wrappers around raw file descriptors
                     //thus, it is possible for us to get here with stale TcpStreams that have yet to be removed
-                    if addr == &tcp_stream.peer_addr().unwrap() {
-                        let _ = tcp_stream.write(notify);
-                    }
+                    match tcp_stream.peer_addr() {
+                        Ok(ref a) if a == addr => {
+                            let _ = tcp_stream.write(notify);
+                        },
+                        _ => ()
+                    };
                 }
             });
         }

@@ -11,9 +11,11 @@ use std::thread;
 fn main () {
     let mut stream = TcpStream::connect("127.0.0.1:6567").unwrap();
 
-    let msg:[u8; 200] = unsafe {mem::uninitialized()};
+    //let msg:[u8; 1000] = unsafe{mem::uninitialized()};//[0; 1000];
+    let msg = [0; 1000];
     let pub_msg = protocol::publish_message(&[3,3,3,3], &msg);
-    println!("{:?}", pub_msg);
+
+    //println!("{:?}", pub_msg);
 
     let mut f = 0;
     loop {
@@ -22,7 +24,7 @@ fn main () {
             Ok(_) => {f+=1;},
             _ => ()
         };
-        if f == 1000000 {
+        if f == 6000000 {
             break;
         }
     }
