@@ -110,7 +110,7 @@ fn main() {
     let _ = event_loop.run(&mut RQueueServer { server: server,
                                                clients: HashMap::new(),
                                                token_counter: 0,
-                                               worker_pool: StatePool::new(8, |contacts| QueuePoolWorker::new(contacts))
+                                               worker_pool: StatePool::new(6, |contacts| QueuePoolWorker::new(contacts))
     });
 }
 

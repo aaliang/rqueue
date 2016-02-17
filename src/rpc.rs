@@ -7,9 +7,6 @@ use std::os::unix::io::{FromRawFd, RawFd};
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::{ptr};
-use tmp::EXPECT;
-
-use std::str;
 
 /* for reference
 pub struct RawMessage {
