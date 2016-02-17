@@ -4,10 +4,10 @@ extern crate rqueue;
 use std::net::{TcpStream};
 use std::thread;
 use std::io::{Read, Write};
-use rqueue::protocol;
+use rqueue::{protocol, tmp};
 use std::mem;
 
-pub fn get_message (socket: &mut TcpStream) -> Option<usize>{
+pub fn get_message (socket: &mut TcpStream) -> Option<([u8; protocol::MAX_STATIC_SZ], usize)>{
     let mut preamble = [0; 5];
     let mut preamble_read = 0;
     let payl_size;
@@ -22,6 +22,7 @@ pub fn get_message (socket: &mut TcpStream) -> Option<usize>{
                 break;
             },
             Ok(0) if preamble_read == 0 => {
+                println!("not sure if this is valid case b/c of mio ready");
                 return None
             }
             Ok(num_read) => {
@@ -44,7 +45,8 @@ pub fn get_message (socket: &mut TcpStream) -> Option<usize>{
                     if retries > 0 {
                         println!("continuing after {} retries", retries);
                     }
-                    return Some(curr_index + preamble_read)
+                    //return Some(curr_index + preamble_read)
+                    return Some((payload, curr_index))
                 } else {
                     retries += 1;
                     println!("retrying #{}", retries);
@@ -67,18 +69,18 @@ fn main () {
 
     let msg_opt = get_message(&mut stream);
 
-    if let Some(b) = msg_opt {
-
-        let mut bytes = b;
+    if let Some((_b, _bytes_read)) = msg_opt {
+        let mut bytes = _bytes_read;
+        //assert_eq!(&_b[.._bytes_read], &tmp::EXPECT[..]);
+        println!("ok");
         let mut count = 1;
 
         let start = time::precise_time_ns();
 
         loop {
             match get_message(&mut stream) {
-               // Some(0) => break,
-                Some(bytes_read) => {
-                    bytes+=bytes_read;
+                Some((b, bytes_read)) => {
+                    bytes += bytes_read;
                     count += 1;
                 },
                 _ => ()
@@ -96,11 +98,4 @@ fn main () {
 
     }
 
-    //[length, type, payload]
-    //[]
-
-
-    /*println!("{:?}", r);
-    println!("{:?}", &mut_buf);
-    thread::park();*/
 }

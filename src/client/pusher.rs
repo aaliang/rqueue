@@ -15,7 +15,7 @@ fn main () {
     let msg = [0; 1000];
     let pub_msg = protocol::publish_message(&[3,3,3,3], &msg);
 
-    //println!("{:?}", pub_msg);
+    println!("{:?}", pub_msg);
 
     let mut f = 0;
     loop {

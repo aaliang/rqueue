@@ -53,25 +53,26 @@ pub fn get_message (socket: &mut TcpStream) -> Option<RawMessage>{
             Ok(Some(read)) => {
                 curr_index += read;
                 if curr_index == payl_size {
-                    if retries > 0 {
+                    //TODO: macro these comments in/out
+                    /*if retries > 0 {
                         println!("continuing after {} retries", retries);
-                    }
+                    }*/
                     return Some(RawMessage {
                         m_type: m_type,
-                        length: read,
+                        length: curr_index,
                         payload: payload,
                         raw_fd: socket.as_raw_fd(),
                         socket_addr: socket.peer_addr().unwrap()
                     })
                 } else {
                     retries += 1;
-                    println!("retrying #{}", retries);
+                   // println!("retrying #{}", retries);
                 }
             }
             err => {
-                println!("err {:?}", err);
-                retries += 1;
-                println!("retrying #{}", retries);
+                //println!("err {:?}", err);
+                //retries += 1;
+                //println!("retrying #{}", retries);
             }
         }
     }
