@@ -20,7 +20,7 @@ NOTIFICATION  = 7    # message pertaining to topic sent from server to client
 `Server |> Client`
 When a publish message is received by the server, a notification is sent out to each client that has previously sent a `SUBSCRIBE`.
 
-|`NOTIFICATION`| payload_len | message_type| topic_len | topic | content
+|`NOTIFICATION`| payload_length | message_type| topic_len | topic | content
 |---           |---          |---          | ---       | ---   | --- 
 **`LENGTH`**   |  4          | 1           | 1         |  T    |  C
 **`VAL`**      | T + C + 1   | 7           |           |       |
@@ -32,7 +32,7 @@ When a publish message is received by the server, a notification is sent out to 
 `Client |> SERVER`
 Registers interest in a topic
 
-|`SUBSCRIBE`   | payload_len | message_type| topic_len | topic
+|`SUBSCRIBE`   | payload_length | message_type| topic_len | topic
 |---           |---          |---          | ---       | ---
 **`LENGTH`**   |  4          | 1           | 1         |  T
 **`VAL`**      | T + 1       | 1           |           |
@@ -45,15 +45,15 @@ TODO: the topic_len is perhaps not useful, as it can be derived from the payload
 Clients send a publish message when they have something to announce.
 The payload of a publish message is a valid `NOTIFICATION` message. That is to say, `PUBLISH` is composed with `NOTIICATION`
 
-|`PUBLISH`     | payload_len | message_type | notify_len | notify_type | topic_len | topic | content
+|`PUBLISH`     | payload_length | message_type | notify_len | notify_type | topic_len | topic | content
 |---           |---          |---           | ---        | ---         | ---       | ---   | ---
 **`LENGTH`**   | 4           | 1            | 4          | 1           | 1         | T     | C
-**`VAL`**      | T+C+6       | 0            |            | 7           |           |       |
+**`VAL`**      | T + C + 6       | 0            |            | 7           |           |       |
 
 
 can be thought of as
 
-|`PUBLISH`     | payload_length | message_type = 0 | `NOTIFICATION`
+|`PUBLISH`     | payload_length | message_type | `NOTIFICATION`
 |---           |---             |---               | ---
 **`LENGTH`**   |  4             | 1                | N
 **`VAL`**      | N              | 0                |
@@ -72,10 +72,10 @@ unimplemented for now
 `Client |> Server`
 Removes all subscriptions for this client.
 
-|`DEREGISTER`| payload_length | message_type = 2
+|`DEREGISTER`| payload_length | message_type
 |---         |---             |---
 **`LENGTH`** |  4             | 1
-**`VAL`**    |  0000          |
+**`VAL`**    |  0000          | 5
 
 When a client is disconnected it's subscriptions are automatically purged.
 
