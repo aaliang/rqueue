@@ -74,7 +74,7 @@ Removes all subscriptions for this client.
 **`LENGTH`** |  4             | 1
 **`VAL`**    |  0000          |
 
-When the client is disconnected, subscriptions are automatically disconnected
+When a client is disconnected it's subscriptions are automatically purged.
 
 Payloads are capped at 2KB, though you are encouraged to stay under to stay under ethernet's MTU of 1500 bytes for safety. (TCP reads and writes on the client are potentially unstable). As a result, ```payload_length``` will likely decrease to a 16-bit unsigned integer
 
