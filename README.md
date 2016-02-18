@@ -43,14 +43,6 @@ Registers interest in a topic
 
 TODO: the topic_len is perhaps not useful, as it can be derived from the payload_len in this case
 
-####`PUBLISH`
-can be thought of as
-
-|`PUBLISH`     | payload_length | message_type | `NOTIFICATION`
-|---           |---             |---               | ---
-**`LENGTH`**   |  4             | 1                | N
-**`VAL`**      | N              | 0                |
-
 ####`REMOVE`
 `Client |> Server`
 Removes a subcription for this client
