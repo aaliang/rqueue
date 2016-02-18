@@ -3,25 +3,24 @@ extern crate rqueue;
 
 use std::net::{TcpStream};
 use std::io::{Read, Write};
-use rqueue::{protocol};
+use rqueue::protocol;
+use rqueue::protocol::{u8_2_to_usize, MAX_STATIC_SZ, PREAMBLE_SZ, PREAMBLE_LEN_SZ};
 use std::mem;
 
-pub fn get_message (socket: &mut TcpStream) -> Option<([u8; protocol::MAX_STATIC_SZ], usize)>{
-    let mut preamble: [u8; 5] = unsafe{mem::uninitialized()};
+pub fn get_message (socket: &mut TcpStream) -> Option<([u8; MAX_STATIC_SZ], usize)>{
+    let mut message_raw: [u8; MAX_STATIC_SZ] = unsafe{ mem::uninitialized() };
     let mut preamble_read = 0;
     let payl_size;
     let m_type;
 
     loop {
-        match socket.read(&mut preamble[preamble_read..]) {
-            Ok(0) if preamble_read == 0 => {
-                return None
-            }
+        match socket.read(&mut message_raw[preamble_read..PREAMBLE_SZ]) {
+            Ok(0) if preamble_read == 0 => return None,
             Ok(num_read) => {
                 preamble_read += num_read;
-                if preamble_read == 5 {
-                    payl_size = protocol::u8_4_to_u32(&preamble[0..4]);
-                    m_type = preamble[4];
+                if preamble_read == PREAMBLE_SZ {
+                    payl_size = u8_2_to_usize(&message_raw[0..PREAMBLE_LEN_SZ]);
+                    m_type = message_raw[PREAMBLE_LEN_SZ];
                     break;
                 } else {
                     println!("only read: {}", num_read);
@@ -31,33 +30,34 @@ pub fn get_message (socket: &mut TcpStream) -> Option<([u8; protocol::MAX_STATIC
         };
     }
 
-    //println!("preamble: ")
-    //assert_eq!(&[0, 0, 11, 189, 7], &preamble);
-    assert_eq!(&[0, 0, 7, 213, 7], &preamble);
-    //assert_eq!(&[0, 0, 3, 237, 7], &preamble);
-
-    let mut payload: [u8; protocol::MAX_STATIC_SZ] = unsafe { mem::uninitialized() };
     let mut retries = 0;
     let mut curr_index = 0;
-    loop { //this loop might be bad for the event loop. might be able to abstract into a
-           //coroutine powered by mio
-        match socket.read(&mut payload[curr_index..payl_size]) {
-            Ok(read) => {
-                curr_index += read;
-                if curr_index == payl_size {
-                    return Some((payload, curr_index))
-                } else {
+
+    {
+        let mut payload = &mut message_raw[PREAMBLE_SZ..(payl_size + PREAMBLE_SZ)];
+        loop { //this loop might be bad for the event loop. might be able to abstract into a
+               //coroutine powered by mio
+            match socket.read(&mut payload[curr_index..]) {
+                Ok(read) => {
+                    curr_index += read;
+                    if curr_index == payl_size {
+                        break;
+                    } else {
+                        retries += 1;
+                        println!("retrying #{}", retries);
+                    }
+                }
+                err => {
+                    println!("err {:?}", err);
                     retries += 1;
                     println!("retrying #{}", retries);
                 }
             }
-            err => {
-                println!("err {:?}", err);
-                retries += 1;
-                println!("retrying #{}", retries);
-            }
         }
+
     }
+
+    return Some((message_raw, payl_size + PREAMBLE_SZ))
 }
 
 fn main () {
@@ -80,13 +80,8 @@ fn main () {
                     count += 1;
                     let topic_len = payload[0] as usize;
                     let topic = &payload[1..topic_len+1];
-                    //assert_eq!(topic_len, 4);
-                    //assert_eq!(&topic[..], &[3,3,3,3][..]);
 
                     let message = &payload[5..bytes_read];
-                    //assert_eq!(&message[..1995], &[1; 2000][..1995]);
-                    //assert_eq!(&message[1995..], &[66, 67, 68, 69, 70][..]);
-
                 },
                 _ => ()
             };

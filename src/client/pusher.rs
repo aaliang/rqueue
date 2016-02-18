@@ -20,8 +20,9 @@ fn main () {
     msg[1998] = 69;
     msg[1999] = 70;
 
+    let max = 6000000;
 
-    let pub_msg = protocol::publish_message(&[3,3,3,3], &msg);
+    let pub_msg = protocol::notify_message(&[3,3,3,3], &msg);
 
     let msg_len = pub_msg.len();
 
@@ -35,6 +36,7 @@ fn main () {
                 Ok(just_written) =>  {
                     index += just_written;
                     if index == msg_len {
+                        f += 1;
                         break;
                     }
                 },
@@ -42,13 +44,12 @@ fn main () {
                     //println!("err writing: {:?}", e)
                 }
             };
-            f += 1;
         }
-        if f == 6000000 {
+        if f == max {
             break;
         }
     }
 
-    //thread::park();
+    thread::park();
 
 }

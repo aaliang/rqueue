@@ -10,7 +10,7 @@ use mio::{Token, EventSet, EventLoop, PollOpt, Handler};
 use getopts::Options;
 use rqueue::protocol::{RawMessage, get_message};
 use rqueue::threadpool::{StatePool, QueuePoolWorker, PoolWorker};
-use rqueue::rpc::DEREGISTER_ONCE;
+use rqueue::protocol::DEREGISTER_ONCE;
 
 const SERVER: mio::Token = mio::Token(0);
 
@@ -84,7 +84,7 @@ impl Client {
                 m_type: DEREGISTER_ONCE,
                 length: 0,
                 socket_addr: self.socket_addr.clone(),
-                payload: unsafe {mem::uninitialized()},
+                bytes: unsafe {mem::uninitialized()},
                 raw_fd: -1
             };
             let _ = sender.send(message);
@@ -112,7 +112,7 @@ fn main() {
 
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => { m }
-         Err(f) => { panic!(f.to_string()) }
+        Err(f) => { panic!(f.to_string()) }
     };
 
     let port = match matches.opt_str("p") {
