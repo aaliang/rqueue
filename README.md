@@ -25,6 +25,7 @@ When a publish message is received by the server, a notification is sent out to 
 **`LENGTH`**   |  4          | 1           | 1         |  T    |  C
 **`VAL`**      | T + C + 1   | 7           |           |       |
 
+`topic_len` is the length, in bytes of the topic. The topic is capped at 8-bits. Everything after the topic (up to the `payload_len` offset) is assumed to be the content.
 
 ####`SUBSCRIBE`
 
@@ -36,6 +37,7 @@ Registers interest in a topic
 **`LENGTH`**   |  4          | 1           | 1         |  T
 **`VAL`**      | T + 1       | 1           |           |
 
+TODO: the topic_len is perhaps not useful, as it can be derived from the payload_len in this case
 
 ####`PUBLISH`
 
@@ -60,10 +62,11 @@ can be thought of as
 `Client |> Server`
 Removes a subcription for this client
 
-|`REMOVE`      | payload_length | message_type     | topic_len | topic
-|---           |---             |---               | ---       | ---
-**`LENGTH`**   |  4             | 1                | 1         |  T
-**`VAL`**      | T + 1          | 2                |           |
+|`REMOVE`      | payload_length | message_type  | topic
+|---           |---             |---            | ---
+**`LENGTH`**   |  4             | 1             |  T
+**`VAL`**      | T              | 2             |
+unimplemented for now
 
 ####`DEREGISTER`
 `Client |> Server`
