@@ -6,9 +6,10 @@ use std::mem;
 use std::io::Read;
 use rpc;
 
+
 pub const MAX_STATIC_SZ: usize = 2048;
 
-/// RawMessage is raw in so far that we have the message in it's entirity
+/// RawMessage is raw in so far that we have the message in it's entirety
 /// we know the general type but we don't necessarily know what the contents in
 /// the payload is.
 pub struct RawMessage {
@@ -19,33 +20,32 @@ pub struct RawMessage {
     pub socket_addr: SocketAddr
 }
 
+/// Gets a message from the socket
 pub fn get_message (socket: &mut TcpStream) -> Option<RawMessage>{
-    let mut preamble = [0; 5];
+    let mut preamble: [u8; 5] = unsafe { mem::uninitialized() };
     let mut preamble_read = 0;
     let payl_size;
     let m_type;
 
     loop {
         match socket.try_read(&mut preamble[preamble_read..]) {
-            Ok(Some(5)) => {
-                let size = u8_4_to_u32(&preamble[0..4]);
-                payl_size = size;
-                m_type = preamble[4];
-                break;
-            },
             Ok(Some(0)) if preamble_read == 0 => {
                 return None
             }
             Ok(Some(num_read)) => {
-                println!("only read {:?}", num_read);
                 preamble_read += num_read;
+                if preamble_read == 5 {
+                    payl_size = u8_4_to_u32(&preamble[0..4]);
+                    m_type = preamble[4];
+                    break;
+                }
             }
             _ => return None
         };
     }
 
     let mut payload: [u8; MAX_STATIC_SZ] = unsafe { mem::uninitialized() };
-    let mut retries = 0;
+    //let mut retries = 0;
     let mut curr_index = 0;
     loop { //this loop might be bad for the event loop. might be able to abstract into a
            //coroutine powered by mio
@@ -53,10 +53,6 @@ pub fn get_message (socket: &mut TcpStream) -> Option<RawMessage>{
             Ok(Some(read)) => {
                 curr_index += read;
                 if curr_index == payl_size {
-                    //TODO: macro these comments in/out
-                    /*if retries > 0 {
-                        println!("continuing after {} retries", retries);
-                    }*/
                     return Some(RawMessage {
                         m_type: m_type,
                         length: curr_index,
@@ -64,16 +60,9 @@ pub fn get_message (socket: &mut TcpStream) -> Option<RawMessage>{
                         raw_fd: socket.as_raw_fd(),
                         socket_addr: socket.peer_addr().unwrap()
                     })
-                } else {
-                    retries += 1;
-                   // println!("retrying #{}", retries);
-                }
+                } else { /*retries += 1; */}
             }
-            err => {
-                //println!("err {:?}", err);
-                //retries += 1;
-                //println!("retrying #{}", retries);
-            }
+            _ => { /*retries += 1; */}
         }
     }
 }

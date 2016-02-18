@@ -1,72 +1,32 @@
 use std::sync::mpsc::{Sender, Receiver, channel};
 use std::thread;
-use std::sync::Arc;
 use protocol::RawMessage;
 use slice_map::SliceMap;
 use std::collections::{HashSet, HashMap};
 use std::net::{SocketAddr, TcpStream};
 use rpc::parse;
 
-pub struct Pool <T, R> {
-    pub workers: Vec<Sender<T>>,
-    pub wait_rx: Receiver<R>,
-    curr_index: usize
-}
-
-impl <T, R> Pool <T, R> where T: Send + 'static, R: Send + 'static {
-    //sends a value to the pool round robin
-    pub fn send_rr(&mut self, task: T) {
-        let worker = &self.workers[self.curr_index];
-        self.curr_index = (self.curr_index + 1) % self.workers.len();
-        worker.send(task).unwrap();
-    }
-
-    pub fn new <F, A> (num_threads: usize, hm: A, f: F) -> Pool <T, R>
-    where F: Fn (T, &Arc<A>) -> R + Sync + Send + 'static, A: Send + Sync + 'static {
-        let (done, wait) = channel();
-        let func = Arc::new(f);
-        let a = Arc::new(hm);
-        let workers = (0..num_threads).map(|_| {
-            let (snd, work) = channel();
-            let _done = done.clone();
-            let f = func.clone();
-            let aaa = a.clone();
-            let _ = thread::spawn(move || {
-                loop {
-                    let _ = match work.recv() {
-                        Ok(task) => {
-                            let res = f(task, &aaa);
-                            let _ = _done.send(res);
-                        }
-                        _ => ()
-                    };
-                }
-            });
-            snd
-        }).collect();
-        Pool {
-            workers: workers,
-            wait_rx: wait,
-            curr_index: 0
-        }
-    }
-}
-
+/// an interface for a stateful worker capable of acting in a threadpool
 pub trait PoolWorker <T, R> {
     fn new (Vec<Sender<T>>) -> Self;
+
+    /// does some arbitrary unit of work
     fn func(&mut self, T) -> R;
 }
 
-pub struct StatePool <T, R> {
-    pub workers: Vec<Sender<T>>,
-    pub wait_rx: Receiver<R>,
-    curr_index: usize
-}
-
+/// backs a concrete implementation of a PoolWorker
 pub struct QueuePoolWorker {
+
+    /// locally cached mapping of topics (a bunch of bytes) to a collection of subcriber info (tcp
+    /// sockets) 
     topic_map: SliceMap<HashMap<SocketAddr, TcpStream>>,
+
+    /// locally cached mapping of socket addresses to a collection of topics 
+    interest_map: HashMap<SocketAddr, HashSet<Vec<u8>>>,
+
+    /// channels to other threads to broadcast messages on (relatively low priority i.e. does not
+    /// interrupt)
     contacts: Vec<Sender<RawMessage>>,
-    interest_map: HashMap<SocketAddr, HashSet<Vec<u8>>>
 }
 
 impl PoolWorker<RawMessage, ()> for QueuePoolWorker {
@@ -77,14 +37,28 @@ impl PoolWorker<RawMessage, ()> for QueuePoolWorker {
             interest_map: HashMap::new()
         }
     }
+
+    /// does something with a message
     fn func (&mut self, message: RawMessage) {
         parse(message, &self.contacts, &mut self.topic_map, &mut self.interest_map);
     }
 }
 
-//lose generics here because unable to return traits in impl generics right now
+pub struct StatePool <T, R> {
+    /// handles of channels to workers, you can send work to them from here
+    pub workers: Vec<Sender<T>>,
+
+    /// used to receive messages from worker threads
+    pub wait_rx: Receiver<R>,
+
+    /// the last worker that we sent work to, used for certain strats e.g. round robin
+    curr_index: usize
+}
+
+//fyi lose generics here because unable to return traits in impl generics right now
+
 impl StatePool <RawMessage, ()> {
-    //sends a value to the pool round robin
+    /// sends a value to the pool round robin
     pub fn send_rr(&mut self, task: RawMessage) {
         let worker = &self.workers[self.curr_index];
         self.curr_index = (self.curr_index + 1) % self.workers.len();
@@ -123,31 +97,6 @@ impl StatePool <RawMessage, ()> {
 
         StatePool {
             workers: contacts,
-            wait_rx: wait,
-            curr_index: 0
-        }
-    }
-}
-
-pub trait Pooled <T, R> where T: Send + 'static, R: Send + 'static {
-    fn func(task: T) -> R;
-    //fn context() -> G;
-    fn new (num_threads: usize) -> Pool <T, R> {
-        let (done, wait) = channel();
-        let workers = (0..num_threads).map(|_| {
-            let (tx_worker, rx_worker) = channel();
-            let _done = done.clone();
-            let _ = thread::spawn(move || {
-                loop {
-                    let work = rx_worker.recv().unwrap();
-                    let res = Self::func(work);
-                    let _ = _done.send(res);
-                }
-            });
-            tx_worker
-        }).collect();
-        Pool {
-            workers: workers,
             wait_rx: wait,
             curr_index: 0
         }

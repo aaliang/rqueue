@@ -2,36 +2,39 @@ extern crate time;
 extern crate rqueue;
 
 use std::net::{TcpStream};
-use std::thread;
 use std::io::{Read, Write};
-use rqueue::{protocol, tmp};
+use rqueue::{protocol};
 use std::mem;
 
 pub fn get_message (socket: &mut TcpStream) -> Option<([u8; protocol::MAX_STATIC_SZ], usize)>{
-    let mut preamble = [0; 5];
+    let mut preamble: [u8; 5] = unsafe{mem::uninitialized()};
     let mut preamble_read = 0;
     let payl_size;
     let m_type;
 
     loop {
         match socket.read(&mut preamble[preamble_read..]) {
-            Ok(5) => {
-                let size = protocol::u8_4_to_u32(&preamble[0..4]);
-                payl_size = size;
-                m_type = preamble[4];
-                break;
-            },
             Ok(0) if preamble_read == 0 => {
-                println!("not sure if this is valid case b/c of mio ready");
                 return None
             }
             Ok(num_read) => {
-                println!("only read {:?}", num_read);
                 preamble_read += num_read;
+                if preamble_read == 5 {
+                    payl_size = protocol::u8_4_to_u32(&preamble[0..4]);
+                    m_type = preamble[4];
+                    break;
+                } else {
+                    println!("only read: {}", num_read);
+                }
             }
             _ => return None
         };
     }
+
+    //println!("preamble: ")
+    //assert_eq!(&[0, 0, 11, 189, 7], &preamble);
+    assert_eq!(&[0, 0, 7, 213, 7], &preamble);
+    //assert_eq!(&[0, 0, 3, 237, 7], &preamble);
 
     let mut payload: [u8; protocol::MAX_STATIC_SZ] = unsafe { mem::uninitialized() };
     let mut retries = 0;
@@ -42,10 +45,6 @@ pub fn get_message (socket: &mut TcpStream) -> Option<([u8; protocol::MAX_STATIC
             Ok(read) => {
                 curr_index += read;
                 if curr_index == payl_size {
-                    if retries > 0 {
-                        println!("continuing after {} retries", retries);
-                    }
-                    //return Some(curr_index + preamble_read)
                     return Some((payload, curr_index))
                 } else {
                     retries += 1;
@@ -65,23 +64,29 @@ fn main () {
     let mut stream = TcpStream::connect("127.0.0.1:6567").unwrap();
     let sub_msg = protocol::subscribe_message(&[3,3,3,3]);
     println!("{:?}", sub_msg);
-    stream.write_all(&sub_msg);
+    let _ = stream.write_all(&sub_msg);
 
     let msg_opt = get_message(&mut stream);
 
     if let Some((_b, _bytes_read)) = msg_opt {
         let mut bytes = _bytes_read;
-        //assert_eq!(&_b[.._bytes_read], &tmp::EXPECT[..]);
-        println!("ok");
         let mut count = 1;
-
         let start = time::precise_time_ns();
 
         loop {
             match get_message(&mut stream) {
-                Some((b, bytes_read)) => {
+                Some((payload, bytes_read)) => {
                     bytes += bytes_read;
                     count += 1;
+                    let topic_len = payload[0] as usize;
+                    let topic = &payload[1..topic_len+1];
+                    //assert_eq!(topic_len, 4);
+                    //assert_eq!(&topic[..], &[3,3,3,3][..]);
+
+                    let message = &payload[5..bytes_read];
+                    //assert_eq!(&message[..1995], &[1; 2000][..1995]);
+                    //assert_eq!(&message[1995..], &[66, 67, 68, 69, 70][..]);
+
                 },
                 _ => ()
             };

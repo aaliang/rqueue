@@ -5,8 +5,10 @@ authors = ["aliang <aliang2344@gmail.com>"]
 
 [dependencies]
 mio = "0.5"
+getopts = "0.2"
 net2 = "*"
 time = "*"
+
 
 [[bin]]
 name = "server"

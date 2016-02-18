@@ -17,47 +17,77 @@ pub struct RawMessage {
 }
  */
 
-pub const PUBLISH         : u8 = 0;
-pub const SUBSCRIBE       : u8 = 1;
-pub const REMOVE          : u8 = 2;
-pub const SUBSCRIBE_ONCE  : u8 = 3;
-pub const REMOVE_ONCE     : u8 = 4;
-pub const DEREGISTER      : u8 = 5;
-pub const DEREGISTER_ONCE : u8 = 6;
-pub const NOTIFICATION    : u8 = 7;
+// an enumeration on possible message types
+pub const PUBLISH         : u8 = 0; // publishes a message on a topic, broadcasts to other workers
+pub const SUBSCRIBE       : u8 = 1; // subscribes a client to a topic, broadcasts to other workers
+pub const REMOVE          : u8 = 2; // removes client intent on topic, broadcasts to other workers
+pub const SUBSCRIBE_ONCE  : u8 = 3; // same as SUBSCRIBE, but no broadcast
+pub const REMOVE_ONCE     : u8 = 4; // same as REMOVE, but no broadcast
+pub const DEREGISTER      : u8 = 5; // purges all subscriptions for a client, and broadcasts
+pub const DEREGISTER_ONCE : u8 = 6; // same as REGISTER, but no broadcast
+pub const NOTIFICATION    : u8 = 7; // message pertaining to topic sent directly to a client, 
 
 
 //TODO: keying by SocketAddr alone seems like it could potentially be dangerous. perhaps should add a uid. if the socket is reused by a different subscriber and
 //ends up mapping to a previous fd - it might be able to receive traffic that it was not interested in. e.g. a client disconnects then reconnects and happens
 //to get accepted to the same socket, and receives messages before the server can purge interests. Think about this more.
 // the way we're currently handling disconnects right now, sending deregisters from the EL thread makes this a non-issue though
+/// does something, given work denoted as a RawMessage. Many operations are on a SliceMap, which is
+/// a handrolled specialized datastructure
 pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut SliceMap<HashMap<SocketAddr, TcpStream>>, interest_map: &mut HashMap<SocketAddr, HashSet<Vec<u8>>>) {
     match work.m_type {
-        PUBLISH => {
-            //we dont care about the prefix of the notify
-            let notify_payload = &work.payload[5..];
-            let notify = &work.payload[..work.length];
 
-            //these are runtime asserts... this should be macro'd out
-            //but for now this is unstable
-            /*if &notify_payload[..work.length-5] == &EXPECT[..] {
-                //println!("true");
-            } else {
-                //println!("false");
-                println!("payload_len: {}", work.length);
-            }*/
+        PUBLISH => {
+            // a NOTIFICATION is embedded within the payload of PUBLISH.
+            let notify = &work.payload[..work.length];
+            let notify_payload = &notify[5..];
 
             //topic len is a one byte value (<255)
             let topic_len = notify_payload[0] as usize;
             let topic = &notify_payload[1..topic_len+1];
 
+            //this is a runtime assert. this is for testing
+            /*{
+                let notify_message = &notify_payload[topic_len+1..];
+
+                assert_eq!(&notify_message[..1995], &[1; 2000][..1995]);
+                assert_eq!(&notify_message[1995..], &[66, 67, 68, 69, 70][..]);
+            }*/
+
+            // forwards the NOTIFICATION to each interested party
             state_map.apply(topic, |ref mut h_entry| {
                 for (addr, tcp_stream) in h_entry.iter_mut() {
                     //TcpStreams in Rust are wrappers around raw file descriptors
-                    //thus, it is possible for us to get here with stale TcpStreams that have yet to be removed
+                    //this outer check is for runtime protection
                     match tcp_stream.peer_addr() {
                         Ok(ref a) if a == addr => {
-                            let _ = tcp_stream.write(notify);
+                            let mut index = 0;
+                            loop {
+                                match tcp_stream.write(&notify[index..]) {
+                                    Ok(just_written) => {
+                                        index += just_written;
+                                        if index == work.length {
+                                            break;
+                                        } else {
+                                            //this is potentially bad, but does not seem to happen
+                                            //if our buffer is < 4KB. (possibly because of ethernet
+                                            //MTU?)
+                                            //
+                                            //not sure what happens with multithreadedness
+                                            //but while send() syscalls are considered atomic partials are
+                                            //possible in theory -> might have to break our rqueue
+                                            //protocol to allow multi-part
+                                            println!("partial");
+                                        }
+                                    },
+                                    _ => {
+                                        //this is dangerous as it will retry even from a
+                                        //potentially unrecoverable error. perhaps enforce a max
+                                        //timeout or retry limit
+                                        //println!("err writing: {:?}", e);
+                                    }
+                                };
+                            }
                         },
                         _ => ()
                     };
@@ -65,27 +95,30 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
             });
         }
 
-        SUBSCRIBE |  SUBSCRIBE_ONCE => { 
+        // subscribes the client sender to one topic
+        SUBSCRIBE |  SUBSCRIBE_ONCE => {
             let topic_len = work.payload[0] as usize;
             let topic = &work.payload[1..topic_len+1];
             let c = interest_map.entry(work.socket_addr).or_insert(HashSet::new());
             c.insert(topic.to_owned());
 
+            // add the subscribe to our map
             state_map.modify_or_else(topic, |ref mut map| {
-                let tcp_stream = to_std_tcpstream_from_raw(work.raw_fd.clone());
-                if tcp_stream.peer_addr().unwrap() == work.socket_addr {
-                    map.insert(tcp_stream.peer_addr().unwrap(), tcp_stream);
+                    let tcp_stream = to_std_tcpstream_from_raw(work.raw_fd.clone());
+                    if tcp_stream.peer_addr().unwrap() == work.socket_addr {
+                        map.insert(tcp_stream.peer_addr().unwrap(), tcp_stream);
+                    }
+                }, || {
+                    let mut map = HashMap::new();
+                    let tcp_stream = to_std_tcpstream_from_raw(work.raw_fd.clone());
+                    if tcp_stream.peer_addr().unwrap() == work.socket_addr {
+                        map.insert(tcp_stream.peer_addr().unwrap(), tcp_stream);
+                    }
+                    map
                 }
-            }, || {
-                let mut map = HashMap::new();
-                let tcp_stream = to_std_tcpstream_from_raw(work.raw_fd.clone());
-                if tcp_stream.peer_addr().unwrap() == work.socket_addr {
-                    map.insert(tcp_stream.peer_addr().unwrap(), tcp_stream);
-                }
-                map
-            });
+            );
 
-            if work.m_type == SUBSCRIBE {
+            if work.m_type == SUBSCRIBE { //broadcast a sub once to the other workers
                 println!("sub topic: {:?}", &topic[..]);
                 for sender in contacts.iter() {
                     let mut u = unsafe{ ptr::read(&work) };
@@ -95,6 +128,7 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
             }
         }
 
+        // removes one topic from a clients subscriptions
         REMOVE | REMOVE_ONCE => {
             let topic_len = work.payload[0] as usize;
             let topic = &work.payload[1..topic_len+1];
@@ -108,7 +142,7 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
             if remove_topic == Some(true) {
                 state_map.delete(topic);
             }
-            if work.m_type == REMOVE {
+            if work.m_type == REMOVE { //broadcast a remove once to the other workers
                 println!("removing, {:?}", &topic[..]);
                 for sender in contacts.iter() {
                     let mut u = unsafe{ ptr::read(&work) };
@@ -118,6 +152,7 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
             }
         }
 
+        // purges all subscriptions for a client
         DEREGISTER | DEREGISTER_ONCE => {
             if let Some(set) = interest_map.remove(&work.socket_addr) {
                 for topic in set.iter() {
@@ -135,7 +170,7 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
                 }
             }
 
-            if work.m_type == DEREGISTER {
+            if work.m_type == DEREGISTER { //broadcast is done from the event loop for now
                 for sender in contacts.iter() {
                     let mut u = unsafe {ptr::read(&work) };
                     u.m_type = DEREGISTER_ONCE;
@@ -145,11 +180,11 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
         }
         _ => {
             println!("none");
-            //Actions::Nil
         }
     }
 }
 
+// converts a raw fd (a 32-bit C integer) to std::net::TcpStream
 fn to_std_tcpstream_from_raw(fd: RawFd) -> TcpStream {
     let builder = unsafe { TcpBuilder::from_raw_fd(fd.clone()) };
     builder.to_tcp_stream().unwrap()
