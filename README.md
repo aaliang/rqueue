@@ -25,7 +25,7 @@ When a notification message is received by the server, the same notification is 
 
 |`NOTIFICATION`| payload_length | message_type| topic_len | topic | content
 |---           |---          |---          | ---       | ---   | --- 
-**`LENGTH`**   |  4          | 1           | 1         |  T    |  C
+**`LENGTH`**   |  2          | 1           | 1         |  T    |  C
 **`VAL`**      | T + C + 1   | 7           |           |       |
 
 `topic_len` is the length, in bytes of the topic. The topic is capped at 8-bits. Everything after the topic (up to the `payload_len` offset) is assumed to be the content.
@@ -38,7 +38,7 @@ Registers interest in a topic
 
 |`SUBSCRIBE`   | payload_length | message_type| topic_len | topic
 |---           |---          |---          | ---       | ---
-**`LENGTH`**   |  4          | 1           | 1         |  T
+**`LENGTH`**   |  2          | 1           | 1         |  T
 **`VAL`**      | T + 1       | 1           |           |
 
 TODO: the topic_len is perhaps not useful, as it can be derived from the payload_len in this case
@@ -49,7 +49,7 @@ Removes a subcription for this client
 
 |`REMOVE`      | payload_length | message_type  | topic
 |---           |---             |---            | ---
-**`LENGTH`**   |  4             | 1             |  T
+**`LENGTH`**   |  2             | 1             |  T
 **`VAL`**      | T              | 2             |
 unimplemented for now
 
@@ -59,8 +59,8 @@ Removes all subscriptions for this client.
 
 |`DEREGISTER`| payload_length | message_type
 |---         |---             |---
-**`LENGTH`** |  4             | 1
-**`VAL`**    |  0000          | 5
+**`LENGTH`** |  2             | 1
+**`VAL`**    |  00            | 5
 
 When a client is disconnected its subscriptions are automatically purged.
 
