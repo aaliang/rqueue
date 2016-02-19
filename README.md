@@ -3,7 +3,7 @@ Experimental central messaging server designed for high throughput.
 
 ### TCP protocol
 - Each message is prefixed by three bytes, called the `preamble`.
-- The first two bytes bytes `message[0:1]`, concatenated together forms a 16-bit big-endian unsigned integer that represents the number of bytes `payload_length` that follow the `preamble`.
+- The first two bytes bytes `message[0:2]`, concatenated together forms a 16-bit big-endian unsigned integer that represents the number of bytes `payload_length` that follow the `preamble`.
 - The next byte `message[2]` signifies the type of the message `message_type`. Some relevant values are listed below.
 - The next `payload_length` bytes after the `preamble` comprise the `payload`
 
