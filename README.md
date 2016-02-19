@@ -36,12 +36,11 @@ When a notification message is received by the server, the same notification is 
 `Client |> SERVER`
 Registers interest in a topic
 
-|`SUBSCRIBE`   | payload_length | message_type| topic_len | topic
-|---           |---          |---          | ---       | ---
-**`LENGTH`**   |  4          | 1           | 1         |  T
-**`VAL`**      | T + 1       | 1           |           |
+|`SUBSCRIBE`   | payload_length | message_type| topic
+|---           |---          |---          | ---
+**`LENGTH`**   |  4          | 1           | T
+**`VAL`**      | T + 1       | 1           |
 
-TODO: the topic_len is perhaps not useful, as it can be derived from the payload_len in this case
 
 ####`PUBLISH`
 can be thought of as

@@ -44,6 +44,7 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
                         Ok(ref a) if a == addr => {
                             let mut index = 0;
                             loop {
+                                //println!("{}", work.length);
                                 match tcp_stream.write(&work.bytes[index..work.length]) {
                                     Ok(just_written) => {
                                         index += just_written;
@@ -78,8 +79,8 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
 
         // subscribes the client sender to one topic
         SUBSCRIBE |  SUBSCRIBE_ONCE => {
-            let topic_len = payload[0] as usize;
-            let topic = &payload[1..topic_len+1];
+
+            let topic = &payload[..work.length - PREAMBLE_SZ];
             let c = interest_map.entry(work.socket_addr).or_insert(HashSet::new());
             c.insert(topic.to_owned());
 
@@ -100,7 +101,7 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
             );
 
             if work.m_type == SUBSCRIBE { //broadcast a sub once to the other workers
-                println!("sub topic: {:?}", &topic[..]);
+                println!("sub topic: {:?}", &topic);
                 for sender in contacts.iter() {
                     let mut u = unsafe{ ptr::read(&work) };
                     u.m_type = SUBSCRIBE_ONCE;
@@ -111,8 +112,7 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
 
         // removes one topic from a clients subscriptions
         REMOVE | REMOVE_ONCE => {
-            let topic_len = payload[0] as usize;
-            let topic = &payload[1..topic_len+1];
+            let topic = &payload[..work.length - PREAMBLE_SZ];
             let remove_topic = state_map.modify(topic, |ref mut map| {
                 map.remove(&work.socket_addr);
                 match map.is_empty() {
@@ -121,10 +121,10 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
                 }
             });
             if remove_topic == Some(true) {
-                state_map.delete(topic);
+                state_map.delete(payload);
             }
             if work.m_type == REMOVE { //broadcast a remove once to the other workers
-                println!("removing, {:?}", &topic[..]);
+                println!("removing, {:?}", topic);
                 for sender in contacts.iter() {
                     let mut u = unsafe{ ptr::read(&work) };
                     u.m_type = REMOVE_ONCE;
@@ -145,7 +145,7 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
                         }
                     });
                     if remove_topic == Some(true) {
-                        println!("removing topic {:?}", &topic[..]);
+                        println!("removing topic {:?}", topic);
                         state_map.delete(topic);
                     }
                 }

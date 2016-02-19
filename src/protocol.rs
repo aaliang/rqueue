@@ -109,13 +109,11 @@ pub fn notify_message(topic: &[u8], content: &[u8]) -> Vec<u8> {
 /// creates a byte representation of a subscribe message
 pub fn subscribe_message(topic: &[u8]) -> Vec<u8> {
     let mut vec = Vec::new();
-    let topic_len = [topic.len() as u8];
-    let sz = (topic.len() + topic_len.len()) as u16;
+    let sz = topic.len() as u16;
     let len:[u8; PREAMBLE_LEN_SZ] = unsafe {mem::transmute(sz.to_be())};
 
     vec.extend(len.iter()
                .chain([SUBSCRIBE].iter())
-               .chain(topic_len.iter())
                .chain(topic.iter()));
     vec
 }
