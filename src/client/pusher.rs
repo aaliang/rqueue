@@ -1,15 +1,21 @@
 extern crate time;
 extern crate rqueue;
+extern crate net2;
 
 use std::net::{TcpStream};
 use std::io::{Write};
 use rqueue::protocol;
 use std::mem;
+use net2::TcpStreamExt;
+
 
 use std::thread;
 
 fn main () {
     let mut stream = TcpStream::connect("127.0.0.1:6567").unwrap();
+
+    stream.set_nonblocking(false);
+    stream.set_nodelay(true);
 
     //let msg:[u8; 1000] = unsafe{mem::uninitialized()};//[0; 1000];
     let mut msg = [1; 2000];
@@ -31,7 +37,7 @@ fn main () {
     let mut f = 0;
     loop {
         let mut index = 0;
-        loop {
+        /*loop {
             match stream.write(&pub_msg[index..]) {
                 Ok(just_written) =>  {
                     index += just_written;
@@ -44,7 +50,9 @@ fn main () {
                     //println!("err writing: {:?}", e)
                 }
             };
-        }
+        }*/
+        stream.write(&pub_msg);
+        f += 1;
         if f == max {
             break;
         }

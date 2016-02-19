@@ -4,7 +4,7 @@ use std::os::unix::io::{FromRawFd, RawFd};
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::ptr;
-use net2::TcpBuilder;
+use net2::{TcpBuilder, TcpStreamExt};
 use slice_map::SliceMap;
 use protocol::{RawMessage, PREAMBLE_SZ};
 use protocol::{NOTIFICATION, SUBSCRIBE, SUBSCRIBE_ONCE, REMOVE, REMOVE_ONCE, DEREGISTER, DEREGISTER_ONCE};
@@ -42,8 +42,9 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
                     //this outer check is for runtime protection
                     match tcp_stream.peer_addr() {
                         Ok(ref a) if a == addr => {
-                            let mut index = 0;
-                            loop {
+                            let _ = tcp_stream.write_all(&work.bytes[..work.length]);
+                            //let mut index = 0;
+                            /*loop {
                                 match tcp_stream.write(&work.bytes[index..work.length]) {
                                     Ok(just_written) => {
                                         index += just_written;
@@ -68,7 +69,7 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
                                         //println!("err writing: {:?}", e);
                                     }
                                 };
-                            }
+                            }*/
                         },
                         _ => ()
                     };
@@ -168,5 +169,8 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
 // converts a raw fd (a 32-bit C integer) to std::net::TcpStream
 fn to_std_tcpstream_from_raw(fd: RawFd) -> TcpStream {
     let builder = unsafe { TcpBuilder::from_raw_fd(fd.clone()) };
-    builder.to_tcp_stream().unwrap()
+    let stream = builder.to_tcp_stream().unwrap();
+    stream.set_nonblocking(false);
+    stream.set_nodelay(true);
+    stream
 }
