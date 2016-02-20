@@ -3,8 +3,8 @@ Experimental central messaging server designed for high throughput.
 
 ### TCP protocol
 - Each message is prefixed by three bytes, called the `preamble`.
-- The first two bytes bytes `message[0:2]`, concatenated together forms a 16-bit big-endian unsigned integer that represents the number of bytes `payload_length` that follow the `preamble`.
-- The next byte `message[2]` signifies the type of the message `message_type`. Some relevant values are listed below.
+- The first two bytes bytes `message[0:2]` when concatenated together forms a 16-bit big-endian unsigned integer that represents the number of bytes `payload_length` that follow the `preamble`.
+- The next byte `message[2]` signifies the type of the message `message_type`. As this considered part of the preamble, it is excluded when accounting for `payload_length` Some relevant values are listed below.
 - The next `payload_length` bytes after the `preamble` comprise the `payload`
 
 ```
@@ -39,7 +39,7 @@ Registers interest in a topic
 |`SUBSCRIBE`   | payload_length | message_type| topic
 |---           |---          |---          | ---
 **`LENGTH`**   |  2          | 1           | T
-**`VAL`**      | T + 1       | 1           |
+**`VAL`**      | T           | 1           |
 
 ####`REMOVE`
 `Client |> Server`
