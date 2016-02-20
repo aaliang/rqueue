@@ -3,7 +3,7 @@ extern crate rqueue;
 extern crate getopts;
 
 use std::{mem, env};
-use std::collections::{HashMap};
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use mio::tcp::{TcpStream, TcpListener};
 use mio::{Token, EventSet, EventLoop, PollOpt, Handler};
@@ -11,6 +11,8 @@ use getopts::Options;
 use rqueue::protocol::{RawMessage, get_message};
 use rqueue::threadpool::{StatePool, QueuePoolWorker, PoolWorker};
 use rqueue::protocol::DEREGISTER_ONCE;
+use rqueue::rpc::parse;
+use rqueue::slice_map::SliceMap;
 
 const SERVER: mio::Token = mio::Token(0);
 
@@ -18,7 +20,9 @@ struct RQueueServer {
     server: TcpListener,
     clients: HashMap<Token, Client>, // just a regular slow hm for now
     token_counter: usize,
-    worker_pool: StatePool<RawMessage, ()>
+    worker_pool: StatePool<RawMessage, ()>,
+    state_map: SliceMap<HashMap<SocketAddr, std::net::TcpStream>>,
+    interest_map: HashMap<SocketAddr, HashSet<Vec<u8>>>
 }
 
 // implements a vanilla-ish mio event loop
@@ -54,7 +58,17 @@ impl Handler for RQueueServer {
                     client.disconnect(&mut self.worker_pool);
                 } else {
                     let mut client = self.clients.get_mut(&token).unwrap();
-                    client.onread(&mut self.worker_pool);
+
+                    loop {
+                        match get_message(&mut client.socket) {
+                            Some(s) => {
+                                parse(s, &mut self.state_map, &mut self.interest_map)
+                                //pool.send_rr(s);
+                            },
+                            None => return
+                        }
+                    }
+
                     let _ = event_loop.reregister(&client.socket, token, EventSet::readable(), PollOpt::edge());
                 }
             }
@@ -138,6 +152,8 @@ fn main() {
     let _ = event_loop.run(&mut RQueueServer { server: server,
                                                clients: HashMap::new(),
                                                token_counter: 0,
+                                               state_map: SliceMap::new(),
+                                               interest_map: HashMap::new(),
                                                // decoupled worker pool with configurable # of
                                                // threads
                                                worker_pool: StatePool::new(aux_threads, |contacts| QueuePoolWorker::new(contacts))

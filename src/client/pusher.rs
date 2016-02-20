@@ -14,11 +14,11 @@ fn main () {
     //let msg:[u8; 1000] = unsafe{mem::uninitialized()};//[0; 1000];
     let mut msg = [1; 2000];
 
-    msg[1995] = 66;
+    /*msg[1995] = 66;
     msg[1996] = 67;
     msg[1997] = 68;
     msg[1998] = 69;
-    msg[1999] = 70;
+    msg[1999] = 70;*/
 
     let max = 6000000;
 

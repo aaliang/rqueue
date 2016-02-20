@@ -40,7 +40,7 @@ impl PoolWorker<RawMessage, ()> for QueuePoolWorker {
 
     /// does something with a message
     fn func (&mut self, message: RawMessage) {
-        parse(message, &self.contacts, &mut self.topic_map, &mut self.interest_map);
+        //parse(message, &self.contacts, &mut self.topic_map, &mut self.interest_map);
     }
 }
 
