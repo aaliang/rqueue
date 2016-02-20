@@ -5,13 +5,16 @@ extern crate getopts;
 use std::{mem, env};
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
+use std::thread;
+use std::sync::Arc;
+use std::sync::atomic::{Ordering, AtomicBool};
 use mio::tcp::{TcpStream, TcpListener};
-use mio::{Token, EventSet, EventLoop, PollOpt, Handler};
+use mio::{Token, EventSet, EventLoop, PollOpt, Handler, Sender};
 use getopts::Options;
 use rqueue::protocol::{RawMessage, get_message};
 use rqueue::threadpool::{StatePool, QueuePoolWorker, PoolWorker};
 use rqueue::protocol::DEREGISTER_ONCE;
-use rqueue::rpc::parse;
+use rqueue::rpc::{Events, parse};
 use rqueue::slice_map::SliceMap;
 
 const SERVER: mio::Token = mio::Token(0);
@@ -20,9 +23,8 @@ struct RQueueServer {
     server: TcpListener,
     clients: HashMap<Token, Client>, // just a regular slow hm for now
     token_counter: usize,
-    worker_pool: StatePool<RawMessage, ()>,
-    state_map: SliceMap<HashMap<SocketAddr, std::net::TcpStream>>,
-    interest_map: HashMap<SocketAddr, HashSet<Vec<u8>>>
+    slave_loops: Vec<Sender<Events>>,
+    rr_index: usize
 }
 
 // implements a vanilla-ish mio event loop
@@ -45,8 +47,19 @@ impl Handler for RQueueServer {
                 //for now just increment the token (FAIP the client id)
                 self.token_counter += 1;
                 let ntoken = Token(self.token_counter);
+
+                let arcBool = Arc::new(AtomicBool::new(false));
+
+
+                for x in self.slave_loops.iter() {
+                    x.send(Events::NewSocket(ntoken, client_socket.try_clone().unwrap(), arcBool.clone()));
+                }
                 println!("new token {:?}", ntoken);
                 self.clients.insert(ntoken, Client::new(client_socket));
+
+                /*for i in self.slave_loops.iter() {
+                    i.send(Events::Read())
+                }*/
 
                 event_loop.register(&self.clients[&ntoken].socket, ntoken, EventSet::readable(),
                                     PollOpt::edge()).unwrap();
@@ -55,22 +68,59 @@ impl Handler for RQueueServer {
                 if events.is_hup() { // on client hangup
                     println!("removing token {:?}", token);
                     let client = self.clients.remove(&token).unwrap();
-                    client.disconnect(&mut self.worker_pool);
+                    //client.disconnect(&mut self.worker_pool);
                 } else {
-                    let mut client = self.clients.get_mut(&token).unwrap();
+                    let client = self.clients.get(&token).unwrap();
 
-                    loop {
-                        match get_message(&mut client.socket) {
-                            Some(s) => {
-                                parse(s, &mut self.state_map, &mut self.interest_map)
-                                //pool.send_rr(s);
-                            },
-                            None => return
-                        }
-                    }
+                    self.slave_loops[self.rr_index].send(Events::Read(token));
+
+                    self.rr_index = (self.rr_index + 1) % self.slave_loops.len();
 
                     let _ = event_loop.reregister(&client.socket, token, EventSet::readable(), PollOpt::edge());
                 }
+            }
+        }
+    }
+}
+
+struct XWorker {
+    id: usize,
+    clients: HashMap<Token, (TcpStream, Arc<AtomicBool>)>,
+    state_map: SliceMap<HashMap<SocketAddr, std::net::TcpStream>>,
+    interest_map: HashMap<SocketAddr, HashSet<Vec<u8>>>,
+    friends: Vec<Sender<Events>>
+}
+
+impl Handler for XWorker {
+    type Timeout = ();
+    type Message = Events;
+
+    fn notify(&mut self, event_loop: &mut EventLoop<XWorker>, event: Events) {
+        match event {
+            Events::Read(token) => {
+                let &mut (ref mut client, ref mut arc_bool) = self.clients.get_mut(&token).unwrap();
+                loop {
+                    let is_occupied = arc_bool.compare_and_swap(false, true, Ordering::SeqCst);
+                    if !is_occupied {
+                        match get_message(client) {
+                            Some(s) => {
+                                arc_bool.store(false, Ordering::SeqCst);
+                                //println!("{}", self.id);
+                                parse(s, &mut self.state_map, &mut self.interest_map, &self.friends)
+                            },
+                            None => {
+                                arc_bool.store(false, Ordering::SeqCst);
+                                return
+                            }
+                        }
+                    }
+                }
+            }
+            Events::NewSocket(token, socket, arc_bool) =>  {
+                self.clients.insert(token, (socket, arc_bool));
+            }
+            Events::Broadcast(message) => {
+                parse(message, &mut self.state_map, &mut self.interest_map, &self.friends);
             }
         }
     }
@@ -142,22 +192,60 @@ fn main() {
     let address = format!("0.0.0.0:{}", port).parse().unwrap();
     let server = TcpListener::bind(&address).unwrap();
 
-    let mut event_loop = EventLoop::new().unwrap();
-    event_loop.register(&server, SERVER, EventSet::all(), PollOpt::edge()).unwrap();
+    let mut main_event_loop = EventLoop::new().unwrap();
+    main_event_loop.register(&server, SERVER, EventSet::all(), PollOpt::edge()).unwrap();
+
+    let num_slaves = aux_threads.clone();
+
+    let slave_loops = (0..num_slaves).map(|_| {
+        EventLoop::new().unwrap()
+    }).collect::<Vec<_>>();
+
+    let contacts = slave_loops.iter().map(|el|
+        el.channel()).collect::<Vec<_>>();
+
+    for (i, mut slave) in slave_loops.into_iter().enumerate() {
+        let mut friends = contacts.clone();
+        friends.remove(i);
+        thread::spawn(move || {
+            slave.run(&mut XWorker {
+                id: i,
+                clients: HashMap::new(),
+                state_map: SliceMap::new(),
+                interest_map: HashMap::new(),
+                friends: friends
+            });
+        });
+    }
+
+    /*let slaves = (0..num_slaves).map(|x| {
+        let mut slave_loop = EventLoop::new().unwrap();
+        let chan = slave_loop.channel();
+        let workers = thread::spawn(move || {
+            let _ = slave_loop.run(&mut XWorker {
+                clients: HashMap::new(),
+                state_map: SliceMap::new(),
+                interest_map: HashMap::new()
+            });
+        });
+        chan
+    }).collect::<Vec<_>>();*/
+
 
     println!("running server on port {}", port);
     println!("   with {} workers", aux_threads);
 
+    thread::spawn(move || {
     //start the event loop
-    let _ = event_loop.run(&mut RQueueServer { server: server,
-                                               clients: HashMap::new(),
-                                               token_counter: 0,
-                                               state_map: SliceMap::new(),
-                                               interest_map: HashMap::new(),
-                                               // decoupled worker pool with configurable # of
-                                               // threads
-                                               worker_pool: StatePool::new(aux_threads, |contacts| QueuePoolWorker::new(contacts))
-    });
+        let _ = main_event_loop.run(&mut RQueueServer { server: server,
+                                                   clients: HashMap::new(),
+                                                   token_counter: 0,
+                                                   slave_loops: contacts.clone(),
+                                                   rr_index: 0,
+                                                   // decoupled worker pool with configurable # of
+                                                   // threads
+        });
+    }).join();
 }
 
 //for debug

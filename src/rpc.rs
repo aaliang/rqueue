@@ -8,7 +8,11 @@ use net2::TcpBuilder;
 use slice_map::SliceMap;
 use protocol::{RawMessage, PREAMBLE_SZ};
 use protocol::{NOTIFICATION, SUBSCRIBE, SUBSCRIBE_ONCE, REMOVE, REMOVE_ONCE, DEREGISTER, DEREGISTER_ONCE};
-
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use mio::Token;
+use mio::Sender as MioSender;
+use mio::tcp::TcpStream as MioTcpStream;
 /* for reference
 pub struct RawMessage {
     pub m_type: u8,
@@ -18,13 +22,19 @@ pub struct RawMessage {
 }
  */
 
+pub enum Events {
+    Read(Token),
+    NewSocket(Token, MioTcpStream, Arc<AtomicBool>),
+    Broadcast(RawMessage)
+}
+
 //TODO: keying by SocketAddr alone seems like it could potentially be dangerous. perhaps should add a uid. if the socket is reused by a different subscriber and
 //ends up mapping to a previous fd - it might be able to receive traffic that it was not interested in. e.g. a client disconnects then reconnects and happens
 //to get accepted to the same socket, and receives messages before the server can purge interests. Think about this more.
 // the way we're currently handling disconnects right now, sending deregisters from the EL thread makes this a non-issue though
 /// does something, given work denoted as a RawMessage. Many operations are on a SliceMap, which is
 /// a handrolled specialized datastructure
-pub fn parse(work: RawMessage, state_map: &mut SliceMap<HashMap<SocketAddr, TcpStream>>, interest_map: &mut HashMap<SocketAddr, HashSet<Vec<u8>>>) {
+pub fn parse(work: RawMessage, state_map: &mut SliceMap<HashMap<SocketAddr, TcpStream>>, interest_map: &mut HashMap<SocketAddr, HashSet<Vec<u8>>>, contacts: &Vec<MioSender<Events>>) {
 
     //the message excluding the preamble
     let payload = &work.bytes[PREAMBLE_SZ..];
@@ -99,15 +109,15 @@ pub fn parse(work: RawMessage, state_map: &mut SliceMap<HashMap<SocketAddr, TcpS
                     map
                 }
             );
-            /*
+
             if work.m_type == SUBSCRIBE { //broadcast a sub once to the other workers
                 println!("sub topic: {:?}", &topic);
                 for sender in contacts.iter() {
                     let mut u = unsafe{ ptr::read(&work) };
                     u.m_type = SUBSCRIBE_ONCE;
-                    let _ = sender.send(u);
+                    let _ = sender.send(Events::Broadcast(u));
                 }
-            }*/
+            }
         }
 
         // removes one topic from a clients subscriptions
