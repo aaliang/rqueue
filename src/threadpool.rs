@@ -1,9 +1,10 @@
 use std::sync::mpsc::{Sender, Receiver, channel};
 use std::thread;
-use protocol::RawMessage;
+use protocol::{get_message, RawMessage};
 use slice_map::SliceMap;
 use std::collections::{HashSet, HashMap};
 use std::net::{SocketAddr, TcpStream};
+use mio::tcp::TcpStream as MioTcpStream;
 use rpc::parse;
 
 /// an interface for a stateful worker capable of acting in a threadpool
@@ -58,6 +59,17 @@ pub struct StatePool <T, R> {
 //fyi lose generics here because unable to return traits in impl generics right now
 
 impl StatePool <RawMessage, ()> {
+
+    pub fn handle_messages (&mut self, socket: &mut MioTcpStream) {
+        loop {
+            match get_message(socket) {
+                //defers work to the pool
+                Some(s) => { self.send_rr(s); },
+                None => return
+            };
+        }
+    }
+
     /// sends a value to the pool round robin
     pub fn send_rr(&mut self, task: RawMessage) {
         let worker = &self.workers[self.curr_index];

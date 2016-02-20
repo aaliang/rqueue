@@ -54,7 +54,7 @@ impl Handler for RQueueServer {
                     client.disconnect(&mut self.worker_pool);
                 } else {
                     let mut client = self.clients.get_mut(&token).unwrap();
-                    client.onread(&mut self.worker_pool);
+                    self.worker_pool.handle_messages(&mut client.socket);
                     let _ = event_loop.reregister(&client.socket, token, EventSet::readable(), PollOpt::edge());
                 }
             }
@@ -88,17 +88,6 @@ impl Client {
                 raw_fd: -1
             };
             let _ = sender.send(message);
-        }
-    }
-    /// called on every message after connecting
-    fn onread(&mut self, pool: &mut StatePool<RawMessage, ()>) {
-        loop {
-            match get_message(&mut self.socket) {
-                Some(s) => {
-                    pool.send_rr(s);
-                },
-                None => return
-            }
         }
     }
 }
