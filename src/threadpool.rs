@@ -12,7 +12,7 @@ pub trait PoolWorker <T, R> {
     fn new (Vec<Sender<T>>) -> Self;
 
     /// does some arbitrary unit of work
-    fn func(&mut self, T) -> R;
+    fn func(&mut self, &T) -> R;
 }
 
 /// backs a concrete implementation of a PoolWorker
@@ -40,8 +40,8 @@ impl PoolWorker<RawMessage, ()> for QueuePoolWorker {
     }
 
     /// does something with a message
-    fn func (&mut self, message: RawMessage) {
-        parse(message, &self.contacts, &mut self.topic_map, &mut self.interest_map);
+    fn func (&mut self, message: &RawMessage) {
+        parse(&message, &self.contacts, &mut self.topic_map, &mut self.interest_map);
     }
 }
 
@@ -98,7 +98,7 @@ impl StatePool <RawMessage, ()> {
                 loop {
                     let _ = match _work.recv() {
                         Ok(task) => {
-                            let res = worker.func(task);
+                            let res = worker.func(&task);
                             let _ = _done.send(res);
                         }
                         _ => ()

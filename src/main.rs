@@ -8,7 +8,7 @@ use std::net::SocketAddr;
 use mio::tcp::{TcpStream, TcpListener};
 use mio::{Token, EventSet, EventLoop, PollOpt, Handler};
 use getopts::Options;
-use rqueue::protocol::{RawMessage, get_message};
+use rqueue::protocol::RawMessage;
 use rqueue::threadpool::{StatePool, QueuePoolWorker, PoolWorker};
 use rqueue::protocol::DEREGISTER_ONCE;
 

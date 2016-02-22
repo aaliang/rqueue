@@ -24,7 +24,7 @@ pub struct RawMessage {
 // the way we're currently handling disconnects right now, sending deregisters from the EL thread makes this a non-issue though
 /// does something, given work denoted as a RawMessage. Many operations are on a SliceMap, which is
 /// a handrolled specialized datastructure
-pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut SliceMap<HashMap<SocketAddr, TcpStream>>, interest_map: &mut HashMap<SocketAddr, HashSet<Vec<u8>>>) {
+pub fn parse(work: &RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut SliceMap<HashMap<SocketAddr, TcpStream>>, interest_map: &mut HashMap<SocketAddr, HashSet<Vec<u8>>>) {
 
     //the message excluding the preamble
     let payload = &work.bytes[PREAMBLE_SZ..];
@@ -103,7 +103,7 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
             if work.m_type == SUBSCRIBE { //broadcast a sub once to the other workers
                 println!("sub topic: {:?}", &topic);
                 for sender in contacts.iter() {
-                    let mut u = unsafe{ ptr::read(&work) };
+                    let mut u = unsafe{ ptr::read(work) };
                     u.m_type = SUBSCRIBE_ONCE;
                     let _ = sender.send(u);
                 }
@@ -126,7 +126,7 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
             if work.m_type == REMOVE { //broadcast a remove once to the other workers
                 println!("removing, {:?}", topic);
                 for sender in contacts.iter() {
-                    let mut u = unsafe{ ptr::read(&work) };
+                    let mut u = unsafe{ ptr::read(work) };
                     u.m_type = REMOVE_ONCE;
                     let _ = sender.send(u);
                 }
@@ -153,7 +153,7 @@ pub fn parse(work: RawMessage, contacts: &[Sender<RawMessage>], state_map: &mut 
 
             if work.m_type == DEREGISTER { //broadcast is done from the event loop for now
                 for sender in contacts.iter() {
-                    let mut u = unsafe {ptr::read(&work) };
+                    let mut u = unsafe {ptr::read(work) };
                     u.m_type = DEREGISTER_ONCE;
                     let _ = sender.send(u);
                 }
