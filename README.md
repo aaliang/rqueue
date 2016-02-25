@@ -62,7 +62,7 @@ Removes all subscriptions for this client.
 
 When a client is disconnected its subscriptions are automatically purged.
 
-Payloads are capped at 2KB, though you are encouraged to stay under to stay under ethernet's MTU of 1500 bytes for safety. (TCP reads and writes on the client are potentially unstable). Larger payloads will be supported in form of multi-part messages.
+Payloads are capped at 2KB, though you are encouraged to stay under to stay within the host OS's page size. Larger payloads will be supported in form of multi-part messages.
 
 
 ### Usage
