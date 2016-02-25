@@ -94,7 +94,7 @@ Compiled with optimizations and run on a 2.4GhZ i5 (Quad core) MBP, clients rece
 #### client bindings
 1. [go-lang](https://github.com/aaliang/rqueue-go)
 2. [python - in progress]
-3. [nodejs - in progress]
+3. [nodejs] (https://github.com/aaliang/rqueue-nodejs)
 4. [erlang/elixir - in progress]
 
 
