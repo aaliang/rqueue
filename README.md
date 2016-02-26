@@ -92,10 +92,10 @@ note: this is not a very good benchmark as it places a writer, consumer, and the
 Compiled with optimizations and run on a 2.4GhZ i5 (Quad core) MBP, clients receive ~130,000 2Kb messages per second. This is significantly faster than comparable benchmarks against Redis, Kafka, RabbitMQ, ActiveMQ, and NSQ (though the feature sets are radically different). Compared to gnatsd this is slightly slower. Heap allocations are avoided altogether on notify however, the bottleneck lies in memmove which is needed to send parsed messages from the eventloop to worker threads over rust mpsc channels. One possible way to lower the overhead is to share stack memory between threads, avoiding copyies between threads however, this will need to rely heavily on unsafe Rust.
 
 #### client bindings
-1. [go-lang](https://github.com/aaliang/rqueue-go)
-2. [python - in progress]
-3. [nodejs] (https://github.com/aaliang/rqueue-nodejs)
-4. [erlang/elixir - in progress]
+- [go-lang](https://github.com/aaliang/rqueue-go)
+- [python](https://github.com/aaliang/rqueue-python)
+- [nodejs](https://github.com/aaliang/rqueue-nodejs)
+- [erlang/elixir - in progress]
 
 
 #### misc
